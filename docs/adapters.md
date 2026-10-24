@@ -1,0 +1,126 @@
+# Adapters
+
+An adapter reads certificate data from a system the customer already runs
+(osquery or Fleet, a cloud API, a scanner export) and maps it to observations
+with `method: adapter`. Adapters implement ADR-0016: leverage what is
+deployed instead of adding an endpoint agent.
+
+Rules for every adapter:
+
+- It only reads. It never scans networks, probes ports or connects to hosts
+  other than the one system it is configured for. Network probing belongs to
+  the probe plugins under ScanPolicy, not here.
+- Credentials are named by reference in the configuration and resolved just
+  in time through `credential.Source`. A value is a `credential.Secret`,
+  which never prints. Settings may not hold credentials: `Config.Check`
+  rejects setting names like `token`/`password` and values shaped like keys
+  or bearer tokens, and its errors never repeat the value.
+- No credential or key material reaches a log, an error, an observation or a
+  fixture. `adapter.Redact` and `adapter.FindSecrets` help; a test greps all
+  fixtures and packs for secret patterns.
+- Every adapter ships redacted fixtures under `testdata/adapters/<name>/`
+  (synthetic host names such as `web01.example.test` only) and a README there
+  that says which are recorded and which are hand-made.
+
+## The interface
+
+```go
+type Adapter interface {
+    Describe() Description
+    Validate(cfg Config) error                              // no I/O
+    Sync(ctx context.Context, cfg Config, since Cursor) (Result, error)
+}
+```
+
+`Sync` returns observations and the new `Cursor` (an opaque string; use
+`adapter.EncodeCursor`/`DecodeCursor` for JSON state). It must be
+deterministic for the same inputs and cursor. Register the adapter in
+`init()` with `adapter.Register(name, factory)`; a factory gets an
+`adapter.Env` (proxy-aware `HTTP` client, `Creds`, `Clock`, `Log`) and the
+command imports the package for its side effect (`cmd/meiscope-collector/adapter.go`).
+
+### Configuration
+
+```json
+[{"name": "fleet-prod", "adapter": "osquery",
+  "settings": {"mode": "fleet", "url": "https://fleet.example.test"},
+  "credentials": {"api_token": "fleet_api_token"}}]
+```
+
+`credentials` maps a purpose to a `credential.Source` reference
+(`^[a-z][a-z0-9_]{0,63}$`). Read it with `cfg.Credential(ctx, env.Creds, "api_token")`.
+
+### Helpers
+
+| Need | Helper |
+|---|---|
+| Paged APIs | `adapter.Paginate` (page cap, repeated-token guard, context aware) |
+| Rate limits | `adapter.NewLimiter(clock, perSecond)` |
+| Delta since last run | the cursor; `adapter.CursorStore` persists it |
+| Retries | `internal/retry` (`Retry-After`, backoff) as in the Fleet client |
+| Tests without the network | `adapter/fixture.Load(dir)` is an `http.RoundTripper` replaying recorded exchanges |
+| Secrets in text | `adapter.Redact`, `adapter.LooksSecret`, `adapter.FindSecrets` |
+
+### Cursor discipline
+
+`adapter.RunOnce` hands the observations to the sink (the durable buffer, or
+the submit client) and only then stores the cursor. If either step fails the
+same delta is read again next run; the core de-duplicates.
+
+### Mapping observations
+
+Use the vendored contract (`api/collector.yaml`). Certificate stores and
+files are not network endpoints, so the osquery adapter uses the target kinds
+`store` and `file` and the `adapter` evidence object, which are PROPOSED
+additions to contract 0.5.0 that the core has not adopted yet (see the
+`feat(contract)` commit). Test every mapping against `submittest.Core`, which
+applies the contract rules.
+
+## Running adapters
+
+```
+meiscope-collector adapter list
+meiscope-collector adapter run --config adapters.json [--every 24h] [NAME...]
+```
+
+Without `MEISCOPE_CORE_URL` the run is a dry run: the observation batch goes to
+stdout and cursors are not saved. With it, observations go through the local
+buffer when `MEISCOPE_BUFFER_DIR` is set (recommended), else straight to the core.
+
+| Variable | Meaning |
+|---|---|
+| `MEISCOPE_CORE_URL` | https URL of the core |
+| `MEISCOPE_BUFFER_DIR` | directory of the local buffer |
+| `MEISCOPE_BUFFER_KEY_REF` | credential reference of the buffer key (default `buffer_key`; 32 bytes, base64) |
+| `MEISCOPE_ADAPTER_STATE_FILE` | where adapter cursors are kept |
+| `MEISCOPE_PROXY_URL`, `MEISCOPE_NO_PROXY`, `MEISCOPE_PROXY_CREDENTIAL`, `MEISCOPE_CA_BUNDLE` | egress (below) |
+
+The command is a minimal local runner. Scheduling from signed jobs arrives
+with the job loop (WP0.3).
+
+## Local buffer
+
+When the core is unreachable, observations stay in `MEISCOPE_BUFFER_DIR` for
+up to 72 hours, encrypted with AES-256-GCM (sequence number as additional
+data, so records cannot be reordered or swapped). The log is bounded
+(512 MiB by default); at the bound `Enqueue` fails with `ErrFull`, the adapter
+does not advance its cursor, and the same data is read again once space is
+free. After a restart the buffer replays only what the core has not accepted,
+in the order it was written, at most 1000 observations per request, using the
+submit client's retries and backoff. A batch is acknowledged on disk right after
+the core accepts it; a crash in the instant between the core's answer and that
+write resends one batch, which the core counts as duplicates. Observations the
+core rejects individually are acknowledged, since resending cannot succeed.
+Each cycle logs `collector heartbeat` with `buffer_depth` and `buffer_expired`;
+the version is in every log line (the core heartbeat endpoint arrives with WP0.3).
+
+## Egress and proxies
+
+The collector's HTTP client (`internal/egress`) honours `HTTPS_PROXY`/`NO_PROXY`
+or an explicit `MEISCOPE_PROXY_URL` (`http://` or `https://` proxy, CONNECT
+tunnel, `MEISCOPE_NO_PROXY` for bypass). A proxy URL with user information is
+refused, since it would leak into logs. Proxy authentication comes only from the
+credential source: set `MEISCOPE_PROXY_CREDENTIAL` to a reference whose value is
+`user:password`; it is read for each CONNECT and sent only in
+`Proxy-Authorization`. `MEISCOPE_CA_BUNDLE` adds trusted roots (a TLS-inspecting
+proxy, a private core CA).
