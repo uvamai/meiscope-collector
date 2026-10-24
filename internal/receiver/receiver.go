@@ -3,8 +3,8 @@
 // osquery's TLS logger) and appends them to a spool directory that the
 // osquery adapter's log-sink mode reads.
 //
-// It is the one place where the collector listens for connections, so it is
-// locked down:
+// It is the only listener of the collector that accepts data (the WP0.1
+// /healthz endpoint serves liveness only), so it is locked down:
 //
 //   - Disabled unless explicitly enabled (Config.Enabled, MEISCOPE_RECEIVER_ENABLED).
 //   - It binds only to a loopback address or an explicitly configured private
@@ -351,7 +351,7 @@ func (r *Receiver) append(events [][]byte) error {
 }
 
 // Serve listens on the configured address and serves until ctx ends. The
-// address is validated again here; this is the only listener in the collector.
+// address is validated again here.
 func (r *Receiver) Serve(ctx context.Context) error {
 	ap, err := ParseListenAddr(r.cfg.Addr)
 	if err != nil {

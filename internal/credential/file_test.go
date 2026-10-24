@@ -1,6 +1,7 @@
 package credential
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"filippo.io/age"
 )
 
 func newStore(t *testing.T) FileSource {
@@ -103,5 +106,72 @@ func TestSetAndInitValidation(t *testing.T) {
 	}
 	if err := InitIdentity(f.IdentityPath); err == nil {
 		t.Fatal("identity overwritten")
+	}
+}
+
+func TestFileSourceDamagedContent(t *testing.T) {
+	f := newStore(t)
+	if err := f.Set("a_key", "v"); err != nil {
+		t.Fatal(err)
+	}
+	// An age file that decrypts but holds no reference map.
+	ids, err := f.identities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	x := ids[0].(*age.X25519Identity)
+	var buf bytes.Buffer
+	w, _ := age.Encrypt(&buf, x.Recipient())
+	_, _ = w.Write([]byte(`["not","a","map"]`))
+	_ = w.Close()
+	if err := os.WriteFile(f.Path, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Get(context.Background(), "a_key"); err == nil || !strings.Contains(err.Error(), "reference map") {
+		t.Fatalf("%v", err)
+	}
+	if _, err := f.Refs(); err == nil {
+		t.Fatal("Refs accepted a damaged file")
+	}
+	if err := f.Set("b_key", "v"); err == nil {
+		t.Fatal("Set rewrote a damaged file")
+	}
+}
+
+func TestInitIdentityUnwritableDirectory(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "file")
+	_ = os.WriteFile(blocker, []byte("x"), 0o600)
+	if err := InitIdentity(filepath.Join(blocker, "sub", "id.txt")); err == nil {
+		t.Fatal("created an identity below a file")
+	}
+}
+
+func TestSecretNeverLeaksFromFileSourceErrors(t *testing.T) {
+	f := newStore(t)
+	if err := f.Set("a_key", "very-secret-synthetic-value"); err != nil {
+		t.Fatal(err)
+	}
+	other := newStore(t)
+	_, err := FileSource{Path: f.Path, IdentityPath: other.IdentityPath}.Get(context.Background(), "a_key")
+	if err == nil || strings.Contains(err.Error(), "very-secret-synthetic-value") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestSecretEmptyAndUnwritableStore(t *testing.T) {
+	if !NewSecret("").Empty() || NewSecret("x").Empty() {
+		t.Fatal("Empty")
+	}
+	f := newStore(t)
+	blocker := filepath.Join(t.TempDir(), "file")
+	_ = os.WriteFile(blocker, []byte("x"), 0o600)
+	f.Path = filepath.Join(blocker, "creds.age")
+	if err := f.Set("a_key", "v"); err == nil {
+		t.Fatal("wrote a credential file below a file")
+	}
+	// An identity path that is a directory.
+	d := FileSource{Path: f.Path, IdentityPath: t.TempDir()}
+	if _, err := d.identities(); err == nil {
+		t.Fatal("a directory was accepted as an identity file")
 	}
 }

@@ -11,7 +11,9 @@ Rules for every adapter:
   other than the one system it is configured for. Network probing belongs to
   the probe plugins under ScanPolicy, not here.
 - Credentials are named by reference in the configuration and resolved just
-  in time through `credential.Source`. A value is a `credential.Secret`,
+  in time through `credential.Source` (the age-encrypted `FileSource`; see
+  docs/install.md; the environment source exists only in `devcredentials`
+  builds). A value is a `credential.Secret`,
   which never prints. Settings may not hold credentials: `Config.Check`
   rejects setting names like `token`/`password` and values shaped like keys
   or bearer tokens, and its errors never repeat the value.
@@ -69,18 +71,47 @@ same delta is read again next run; the core de-duplicates.
 
 ### Mapping observations
 
-Use the vendored contract (`api/collector.yaml`). Certificate stores and
-files are not network endpoints, so the osquery adapter uses the target kinds
-`store` and `file` and the `adapter` evidence object, which are PROPOSED
-additions to contract 0.5.0 that the core has not adopted yet (see the
-`feat(contract)` commit). Test every mapping against `submittest.Core`, which
-applies the contract rules.
+`api/collector.yaml` is the core's contract, vendored byte for byte
+(currently 0.4.0); the core owns it. Certificate stores and files are not
+network endpoints, so the osquery adapter needs the target kinds `store` and
+`file` and the `adapter` evidence object. These are a PROPOSAL in
+`api/proposed/collector-0.5.0-proposed.yaml` (additive; `task
+contract:proposal` runs oasdiff and reports no breaking change; the new
+objects are open, with no `additionalProperties: false`).
+
+**The core must adopt the proposal before a collector sends any of it.** The
+core's ingest rejects unknown fields today (`additionalProperties: false` on
+Observation, Target and CTEntry in `api/openapi/collector.yaml`, and
+`DisallowUnknownFields` in `internal/api/observations.go` of the core). So
+the requirement "the core accepts and ignores unknown fields" is a
+requirement on the core's next contract version, and the collector keeps
+everything behind `MEISCOPE_FEATURE_LOCAL_STORE_V1` (off by default): with it
+off an adapter emits nothing the current core would reject, and logs and
+counts what it skipped (`skipped_feature_disabled`); with it on it emits the
+proposed shape.
+
+Only public certificate data and file metadata may be carried. A guard test
+(`internal/submit/contract_test.go`) rejects key-shaped property names,
+patterns and examples in both contract files and pins the exact set of new
+fields. Test every mapping against `submittest.NewProposedCore()` (the
+proposal) and, for what is emitted by default, `submittest.NewCore()` (the
+vendored contract).
+
+### Contract drift
+
+`task contract:diff CORE=<path to the core's api/openapi/collector.yaml>`
+compares the vendored file with the core's, lists the changes with oasdiff,
+and runs the tests that send the collector's output (CT poller, probe-style
+shapes, owned domains, batching) to the fake core validating against the
+core's file (`MEISCOPE_CONTRACT`). `STRICT=1` also fails on any difference.
+Real-core ingestion is left to the Phase 0 integration step.
 
 ## Running adapters
 
 ```
 meiscope-collector adapter list
 meiscope-collector adapter run --config adapters.json [--every 24h] [NAME...]
+meiscope-collector adapter pack [--format osquery|fleet] [--query NAME] [--max-file-bytes N] [--max-files N]
 ```
 
 Without `MEISCOPE_CORE_URL` the run is a dry run: the observation batch goes to
@@ -90,6 +121,8 @@ buffer when `MEISCOPE_BUFFER_DIR` is set (recommended), else straight to the cor
 | Variable | Meaning |
 |---|---|
 | `MEISCOPE_CORE_URL` | https URL of the core |
+| `MEISCOPE_FEATURE_LOCAL_STORE_V1` | `true` enables store and file observations (proposed contract); default off |
+| `MEISCOPE_CREDENTIAL_FILE`, `MEISCOPE_CREDENTIAL_KEY_FILE` | the age-encrypted credential file and the collector's identity file |
 | `MEISCOPE_BUFFER_DIR` | directory of the local buffer |
 | `MEISCOPE_BUFFER_KEY_REF` | credential reference of the buffer key (default `buffer_key`; 32 bytes, base64) |
 | `MEISCOPE_ADAPTER_STATE_FILE` | where adapter cursors are kept |
