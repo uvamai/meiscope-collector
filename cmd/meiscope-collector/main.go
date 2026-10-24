@@ -28,6 +28,8 @@ Commands:
   version             print build information
   run                 run the collector (WP0.1: idle loop with /healthz)
   enrol --token TOKEN enrol with the core (WP0.1: placeholder)
+  ct-poll [--every 1h] poll Certificate Transparency for the owned domains (docs/ct.md)
+  ct-baseline --domain D  coverage of the CT poller against the crt.sh baseline
 `
 
 // idleInterval is how often the placeholder run loop reports that it is idle.
@@ -53,6 +55,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		err = runCmd(ctx, args[1:], stderr, getenv)
 	case "enrol":
 		err = enrolCmd(args[1:], stdout, stderr)
+	case "ct-poll":
+		err = ctPollCmd(ctx, args[1:], stdout, stderr, getenv, defaultCTDeps())
+	case "ct-baseline":
+		err = ctBaselineCmd(ctx, args[1:], stdout, stderr, getenv, defaultCTDeps())
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 	default:

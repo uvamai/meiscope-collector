@@ -1,3 +1,5 @@
 # LF everywhere: the systemd unit and packaging files are consumed on Linux.
 * text=auto eol=lf
 *.exe binary
+# Recorded CT fixtures are compared byte for byte (tiles, DER issuers, checkpoints).
+internal/ct/testdata/staticct/** binary

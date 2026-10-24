@@ -1,17 +1,29 @@
 openapi: 3.1.0
 info:
   title: Meiscope collector API
-  version: 0.1.0
+  version: 0.3.0-proposed
   description: |
     Collector surface of the Meiscope core (ADR-0005: REST over mTLS,
     additive-only within /v1). The public collector repository vendors a copy
-    of this file. WP0.1 skeleton: /healthz only.
-    No schema in this file may carry private-key material (NFR-SEC-002).
+    of this file.
+    Vendored from core contract 0.2.0. The parts marked "WP0.4 (proposed)"
+    are additive extensions the CT poller needs (target kind ct_entry,
+    Target.fingerprint, Observation.ct); they are pending in the core.
+    Every request is authenticated by the collector's mTLS client certificate,
+    which identifies its tenant and collector record; no request body names a
+    tenant.
+    No schema in this file may carry private-key material (NFR-SEC-002):
+    observations carry certificates, never keys.
   license:
     name: Apache-2.0
     identifier: Apache-2.0
 servers:
   - url: /collector/v1
+tags:
+  - name: health
+    description: Liveness
+  - name: observations
+    description: Observation submission
 paths:
   /healthz:
     get:
@@ -25,6 +37,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
+  /observations:
+    post:
+      operationId: postObservations
+      summary: Submit a batch of observations
+      description: |
+        Appends the observations and schedules their ingest. The body may be
+        sent with `Content-Encoding: gzip` (recommended); at most 10 MiB on
+        the wire and 64 MiB decompressed.
+        Idempotent: an observation with the same target, method and
+        observed_at as one already stored from this collector is counted as a
+        duplicate and changes nothing, so a batch can be retried safely.
+        Observations that fail validation are listed in `rejected`; the rest
+        of the batch is still accepted.
+      tags: [observations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ObservationBatch"
+      responses:
+        "202":
+          description: The batch was stored; accepted observations will be ingested.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObservationBatchResult"
+        "400":
+          description: The body is not a valid observation batch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "401":
+          description: The collector is not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "413":
+          description: The body exceeds the size limits.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "415":
+          description: Unsupported content type or content encoding.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          description: The batch could not be stored; retry with backoff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
 components:
   schemas:
     Health:
@@ -42,3 +111,251 @@ components:
         commit:
           type: string
           description: Source commit of the core build, or "none".
+    ObservationBatch:
+      type: object
+      additionalProperties: false
+      required: [observations]
+      properties:
+        observations:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/Observation"
+    Observation:
+      type: object
+      additionalProperties: false
+      description: One attempt to read a certificate from a target, with its outcome (FR-DISC-014).
+      required: [target, method, observed_at, outcome]
+      properties:
+        target:
+          $ref: "#/components/schemas/Target"
+        method:
+          type: string
+          enum: [probe, adapter, ct, import]
+          description: How the observation was made.
+        observed_at:
+          type: string
+          format: date-time
+          description: |
+            When the attempt was made, by the collector's clock. At most five
+            minutes ahead of the core's clock.
+        outcome:
+          type: string
+          enum: [reached, refused, timeout, tls_failed, cert_seen]
+          description: |
+            reached: connected, no certificate offered; refused: connection
+            refused; timeout: no answer; tls_failed: the TLS handshake failed;
+            cert_seen: a certificate was served (served_chain is then required).
+        served_chain:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: |
+            The certificates exactly as the target served them, leaf first,
+            each DER-encoded and base64-encoded. Present exactly when outcome
+            is cert_seen.
+          items:
+            type: string
+            format: byte
+            maxLength: 87384
+        tls:
+          $ref: "#/components/schemas/TLSParams"
+        ct:
+          $ref: "#/components/schemas/CTEvidence"
+    Target:
+      type: object
+      additionalProperties: false
+      required: [kind, host]
+      description: |
+        WP0.4 (proposed): port is required for host_port_sni only (a request
+        that was valid before stays valid); kind ct_entry has no port.
+      allOf:
+        - if:
+            properties:
+              kind:
+                const: host_port_sni
+          then:
+            required: [port]
+        - if:
+            properties:
+              kind:
+                const: ct_entry
+          then:
+            required: [fingerprint]
+      properties:
+        kind:
+          type: string
+          enum: [host_port_sni, ct_entry]
+          description: |
+            Locator kind. Other kinds (file, store, cloud resource) are added additively.
+            ct_entry (WP0.4, proposed): a certificate found in Certificate
+            Transparency; host is the owned domain it matched, fingerprint
+            identifies the certificate, and the observation carries ct.
+        host:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: Host name or IP address that was connected to; for ct_entry the owned domain that matched.
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        sni:
+          type: string
+          maxLength: 253
+          description: Server name sent in the TLS ClientHello; empty or absent when none was sent.
+        fingerprint:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: |
+            WP0.4 (proposed), ct_entry only: lowercase hex SHA-256 of the leaf
+            (served_chain[0]). Part of the target, so the core's idempotency
+            key (target, method, observed_at) is distinct per certificate.
+    CTEvidence:
+      type: object
+      additionalProperties: false
+      description: |
+        WP0.4 (proposed). The Certificate Transparency entry, or search-service
+        record, behind an observation with method ct; stored as evidence.
+        served_chain holds the (pre)certificate as logged, then its issuers.
+      required: [source, matched_domain]
+      properties:
+        source:
+          type: string
+          enum: [certspotter, rfc6962, static_ct, crtsh]
+          description: |
+            certspotter: Cert Spotter API; rfc6962: an RFC 6962 log read
+            directly; static_ct: a Static CT API (tiled) log read directly;
+            crtsh: crt.sh, used only as a fallback.
+        matched_domain:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: The owned domain whose list matched.
+        dns_names:
+          type: array
+          maxItems: 1000
+          items:
+            type: string
+            maxLength: 253
+          description: DNS names of the certificate (SAN dNSName, else CN).
+        entry_type:
+          type: string
+          enum: [x509_entry, precert_entry]
+        log_url:
+          type: string
+          maxLength: 2048
+          description: Base URL of the log (rfc6962) or its monitoring prefix (static_ct).
+        log_id:
+          type: string
+          format: byte
+          maxLength: 64
+          description: SHA-256 of the log's public key, when known.
+        entry_index:
+          type: integer
+          minimum: 0
+          description: Index of the entry in the log (rfc6962, static_ct).
+        entry_timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of the log entry (rfc6962, static_ct).
+        leaf_input:
+          type: string
+          format: byte
+          maxLength: 174764
+          description: The RFC 6962 MerkleTreeLeaf as logged (rfc6962, static_ct).
+        extra_data:
+          type: string
+          format: byte
+          maxLength: 1048576
+          description: The RFC 6962 extra_data of the entry (rfc6962).
+        source_id:
+          type: string
+          maxLength: 64
+          description: Record id at the search service (Cert Spotter issuance id, crt.sh id).
+        scts:
+          type: array
+          maxItems: 64
+          description: SCTs embedded in the certificate (which logs hold it).
+          items:
+            type: object
+            additionalProperties: false
+            required: [log_id, timestamp]
+            properties:
+              log_id:
+                type: string
+                format: byte
+                maxLength: 64
+              timestamp:
+                type: string
+                format: date-time
+    TLSParams:
+      type: object
+      additionalProperties: false
+      description: Negotiated connection parameters, stored as tls_params evidence.
+      properties:
+        version:
+          type: string
+          description: Negotiated protocol version, e.g. "TLS 1.3".
+        cipher_suite:
+          type: string
+          description: Negotiated cipher suite name.
+        alpn:
+          type: string
+          description: Negotiated ALPN protocol.
+        ocsp_stapled:
+          type: boolean
+          description: Whether an OCSP response was stapled.
+        protocol:
+          type: string
+          description: Application protocol, e.g. "https", "smtp-starttls", "ldaps".
+        plugin:
+          type: string
+          description: Collector plugin that made the attempt.
+    ObservationBatchResult:
+      type: object
+      additionalProperties: false
+      required: [accepted, duplicates, rejected]
+      properties:
+        accepted:
+          type: integer
+          description: Observations stored by this request.
+        duplicates:
+          type: integer
+          description: Observations already stored by an earlier request.
+        rejected:
+          type: array
+          items:
+            $ref: "#/components/schemas/Rejection"
+    Rejection:
+      type: object
+      additionalProperties: false
+      required: [index, code, message]
+      properties:
+        index:
+          type: integer
+          description: Position of the observation in the batch.
+        code:
+          type: string
+          enum:
+            - invalid_target
+            - invalid_method
+            - invalid_outcome
+            - invalid_observed_at
+            - observed_at_in_future
+            - invalid_served_chain
+            - chain_outcome_mismatch
+        message:
+          type: string
+    Problem:
+      type: object
+      description: Error body (RFC 9457 problem details, subset).
+      required: [title, status]
+      properties:
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
