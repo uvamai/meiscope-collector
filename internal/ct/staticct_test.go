@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/uvamai/meiscope-collector/internal/clock"
-	"github.com/uvamai/meiscope-collector/internal/submit"
 )
 
 const willow = "testdata/staticct/willow2026h2/"
@@ -112,7 +111,7 @@ func TestStaticCTReadsRecordedTile(t *testing.T) {
 		if len(entries) != 3 {
 			t.Fatalf("got %d entries, want 3 (indices 1..3)", len(entries))
 		}
-		wantTypes := []string{submit.EntryX509, submit.EntryPrecert, submit.EntryX509}
+		wantTypes := []string{EntryX509, EntryPrecert, EntryX509}
 		for i, e := range entries {
 			if e.Index != uint64(i+1) || e.Type != wantTypes[i] {
 				t.Errorf("entry %d: index %d type %s", i, e.Index, e.Type)

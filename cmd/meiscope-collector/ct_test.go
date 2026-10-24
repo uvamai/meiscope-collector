@@ -60,10 +60,13 @@ func TestCTPollSubmitsAndSavesProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer core.Close()
+	// The owned domains come from the core; MEISCOPE_CT_DOMAINS is then
+	// ignored (with a warning).
+	core.SetDomains("uvam.ai")
 	state := filepath.Join(t.TempDir(), "ct-state.json")
 	env := map[string]string{
 		"MEISCOPE_CORE_URL":           core.URL,
-		"MEISCOPE_CT_DOMAINS":         "uvam.ai",
+		"MEISCOPE_CT_DOMAINS":         "example.org",
 		"MEISCOPE_CT_CERTSPOTTER_URL": cs.URL,
 		"MEISCOPE_CT_CRTSH_FALLBACK":  "false",
 		"MEISCOPE_CT_STATE_FILE":      state,
@@ -74,14 +77,22 @@ func TestCTPollSubmitsAndSavesProgress(t *testing.T) {
 		if err := ctPollCmd(context.Background(), nil, &out, &errb, getenv, testDeps(core.Client())); err != nil {
 			t.Fatalf("run %d: %v\n%s", i, err, errb.String())
 		}
+		if !strings.Contains(errb.String(), "MEISCOPE_CT_DOMAINS is ignored") {
+			t.Fatalf("run %d: expected a warning, got %s", i, errb.String())
+		}
 	}
 	// The second run finds nothing new (state saved), so one batch only.
-	if n := len(core.Batches()); n != 1 || len(core.Errors()) != 0 {
-		t.Fatalf("%d batches, errors %v", n, core.Errors())
+	if n := len(core.Batches()); n != 1 || len(core.Errors()) != 0 || len(core.Rejected()) != 0 {
+		t.Fatalf("%d batches, errors %v, rejected %v", n, core.Errors(), core.Rejected())
 	}
 	var batch submit.ObservationBatch
 	if err := json.Unmarshal(core.Batches()[0], &batch); err != nil || len(batch.Observations) != 4 {
 		t.Fatalf("batch of %d, %v", len(batch.Observations), err)
+	}
+	for _, o := range batch.Observations {
+		if o.Target.Kind != submit.KindCTLog || o.Target.Host != "127.0.0.1" || o.CTEntry == nil || o.CTEntry.Source != submit.CTSourceCertSpotter {
+			t.Fatalf("observation %+v", o)
+		}
 	}
 	b, err := os.ReadFile(filepath.Clean(state))
 	if err != nil || !strings.Contains(string(b), `"uvam.ai": "17495069787"`) {
@@ -111,6 +122,49 @@ func TestCTPollWithoutCoreWritesBatch(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "not submitted") {
 		t.Fatalf("expected a warning, got %s", errb.String())
+	}
+}
+
+// TestCTPollOwnedDomainsFromCore: without MEISCOPE_CT_DOMAINS the domains
+// come from the core; a failure to read them fails the poll and saves no
+// progress; an empty list polls nothing.
+func TestCTPollOwnedDomainsFromCore(t *testing.T) {
+	cs, _ := fakeCTServices(t)
+	core, err := submittest.NewCore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer core.Close()
+	state := filepath.Join(t.TempDir(), "ct-state.json")
+	env := map[string]string{
+		"MEISCOPE_CORE_URL":           core.URL,
+		"MEISCOPE_CT_CERTSPOTTER_URL": cs.URL,
+		"MEISCOPE_CT_CRTSH_FALLBACK":  "false",
+		"MEISCOPE_CT_STATE_FILE":      state,
+	}
+	getenv := func(k string) string { return env[k] }
+	run := func() (string, error) {
+		var out, errb bytes.Buffer
+		err := ctPollCmd(context.Background(), nil, &out, &errb, getenv, testDeps(core.Client()))
+		return errb.String(), err
+	}
+
+	core.FailNext(http.StatusUnauthorized)
+	if _, err := run(); err == nil || !strings.Contains(err.Error(), "owned domains") {
+		t.Fatalf("want an owned-domains error, got %v", err)
+	}
+	if _, err := os.Stat(state); err == nil {
+		t.Fatal("no progress may be saved when the domains could not be read")
+	}
+
+	if logs, err := run(); err != nil || !strings.Contains(logs, "no owned domains") || len(core.Batches()) != 0 {
+		t.Fatalf("empty list: %v, %d batches\n%s", err, len(core.Batches()), logs)
+	}
+
+	core.SetDomains("uvam.ai", "localhost") // a single label cannot be queried and is skipped
+	logs, err := run()
+	if err != nil || len(core.Batches()) != 1 || !strings.Contains(logs, "owned domain skipped") {
+		t.Fatalf("%v, %d batches\n%s", err, len(core.Batches()), logs)
 	}
 }
 

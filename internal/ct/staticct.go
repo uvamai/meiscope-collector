@@ -15,7 +15,6 @@ import (
 	"sync"
 
 	"github.com/uvamai/meiscope-collector/internal/clock"
-	"github.com/uvamai/meiscope-collector/internal/submit"
 )
 
 // Static CT API (tiled logs), read side, per https://c2sp.org/static-ct-api.
@@ -112,8 +111,8 @@ func NewStaticLog(prefix string, logID []byte, rt http.RoundTripper, clk clock.C
 // URL returns the monitoring prefix.
 func (l *StaticLog) URL() string { return l.prefix }
 
-// Source returns submit.SourceStaticCT.
-func (l *StaticLog) Source() string { return submit.SourceStaticCT }
+// Source returns SourceStaticCT.
+func (l *StaticLog) Source() string { return SourceStaticCT }
 
 // LogID returns the log id when known.
 func (l *StaticLog) LogID() []byte { return l.logID }
@@ -278,10 +277,10 @@ func parseTileLeaf(b []byte) (LogEntry, []byte, error) {
 	e.Timestamp = msToTime(ts)
 	switch etype {
 	case 0:
-		e.Type = submit.EntryX509
+		e.Type = EntryX509
 		e.Cert = r.vector(3)
 	case 1:
-		e.Type = submit.EntryPrecert
+		e.Type = EntryPrecert
 		r.take(32)  // issuer_key_hash
 		r.vector(3) // tbs_certificate
 	default:

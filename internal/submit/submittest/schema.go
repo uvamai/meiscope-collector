@@ -1,6 +1,6 @@
 // Package submittest provides a fake core for tests: it serves POST
-// /collector/v1/observations and validates every request body against the
-// vendored api/collector.yaml.
+// /collector/v1/observations, validating every request body against the
+// vendored api/collector.yaml, and GET /collector/v1/owned-domains.
 package submittest
 
 import (

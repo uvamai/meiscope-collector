@@ -1,9 +1,9 @@
 package submit_test
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -19,22 +19,17 @@ import (
 var t0 = time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
 
 func ctObservation(i int) submit.Observation {
-	der := []byte("certificate " + strconv.Itoa(i))
-	sum := sha256.Sum256(der)
+	// DER of a certificate is a SEQUENCE (0x30); the content is opaque here.
+	der := append([]byte{0x30}, []byte("certificate "+strconv.Itoa(i))...)
 	idx := int64(i)
 	ts := t0
 	return submit.Observation{
-		Target:      submit.Target{Kind: submit.KindCTEntry, Host: "uvam.ai", Fingerprint: hex.EncodeToString(sum[:])},
+		Target:      submit.Target{Kind: submit.KindCTLog, Host: "ct.example", Port: 443},
 		Method:      submit.MethodCT,
 		ObservedAt:  t0,
 		Outcome:     submit.OutcomeCertSeen,
 		ServedChain: [][]byte{der},
-		CT: &submit.CTEvidence{
-			Source: submit.SourceRFC6962, MatchedDomain: "uvam.ai", DNSNames: []string{"a.uvam.ai"},
-			EntryType: submit.EntryX509, LogURL: "https://ct.example/log", EntryIndex: &idx, EntryTimestamp: &ts,
-			LeafInput: []byte{0, 0, 1}, ExtraData: []byte{0, 0, 0},
-			SCTs: []submit.SCT{{LogID: make([]byte, 32), Timestamp: t0}},
-		},
+		CTEntry:     &submit.CTEntry{Source: submit.CTSourceLog, LogID: make([]byte, 32), EntryIndex: &idx, Timestamp: &ts},
 	}
 }
 
@@ -58,8 +53,7 @@ func TestSubmitBatchesOfAtMost1000(t *testing.T) {
 	for i := range obs {
 		obs[i] = ctObservation(i)
 	}
-	// A probe observation in the same batch still validates (port required
-	// for host_port_sni only).
+	// A probe observation in the same batch validates too.
 	obs[7] = submit.Observation{
 		Target: submit.Target{Kind: submit.KindHostPortSNI, Host: "10.0.0.1", Port: 443, SNI: "a.uvam.ai"},
 		Method: submit.MethodProbe, ObservedAt: t0, Outcome: submit.OutcomeTimeout,
@@ -68,7 +62,7 @@ func TestSubmitBatchesOfAtMost1000(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v; core errors %v", err, core.Errors())
 	}
-	if res.Batches != 3 || res.Accepted != 2345 {
+	if res.Batches != 3 || res.Accepted != 2345 || len(res.Rejected) != 0 {
 		t.Fatalf("result %+v", res)
 	}
 	var sizes []int
@@ -99,13 +93,116 @@ func TestSubmitInvalidIsPermanent(t *testing.T) {
 	clk := clock.NewFake(t0)
 	cl, _ := submit.New(core.URL, core.Client(), submit.WithClock(clk))
 	bad := ctObservation(1)
-	bad.Target.Fingerprint = "" // ct_entry requires a fingerprint
+	bad.CTEntry.Source = "rfc6962" // not a CTEntry.source of the contract
 	_, err := cl.Submit(context.Background(), []submit.Observation{bad})
 	if !submit.IsPermanent(err) || len(clk.Sleeps()) != 0 {
 		t.Fatalf("want a permanent error without retries, got %v", err)
 	}
-	if errs := core.Errors(); len(errs) != 1 || !strings.Contains(errs[0], "fingerprint") {
+	if errs := core.Errors(); len(errs) != 1 || !strings.Contains(errs[0], "source") {
 		t.Fatalf("core errors %v", errs)
+	}
+}
+
+// postRaw sends body gzip-compressed to the fake core's observations
+// endpoint and returns the status.
+func postRaw(t *testing.T, core *submittest.Core, body string) int {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, _ = zw.Write([]byte(body))
+	_ = zw.Close()
+	req, err := http.NewRequest(http.MethodPost, core.URL+submit.ObservationsPath, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	resp, err := core.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
+// TestFakeCoreRejectsUnknownFields proves the fake core is strict, as the
+// core is (it decodes with DisallowUnknownFields): a field the vendored
+// contract does not define, anywhere in a batch, fails the request. Among
+// them are the fields of the earlier proposed CT shape.
+func TestFakeCoreRejectsUnknownFields(t *testing.T) {
+	core := newCore(t)
+	valid := `{"observations":[{"target":{"kind":"ct_log","host":"ct.example","port":443},"method":"ct","observed_at":"2026-10-24T00:00:00Z","outcome":"cert_seen","served_chain":["MAA="],"ct_entry":{"source":"log","entry_index":7,"timestamp":"2026-10-23T00:00:00Z"}}]}`
+	if st := postRaw(t, core, valid); st != http.StatusAccepted {
+		t.Fatalf("valid batch: HTTP %d, errors %v", st, core.Errors())
+	}
+	for name, doc := range map[string]string{
+		"observation":        strings.Replace(valid, `"method"`, `"ct":{"source":"log"},"method"`, 1),
+		"target":             strings.Replace(valid, `"port":443`, `"port":443,"fingerprint":"ab"`, 1),
+		"ct_entry":           strings.Replace(valid, `"entry_index":7`, `"entry_index":7,"leaf_input":"AAA="`, 1),
+		"ct_entry log_url":   strings.Replace(valid, `"entry_index":7`, `"entry_index":7,"log_url":"https://ct.example/"`, 1),
+		"ct_entry dns_names": strings.Replace(valid, `"entry_index":7`, `"entry_index":7,"dns_names":["a.uvam.ai"]`, 1),
+		"batch":              strings.Replace(valid, `{"observations"`, `{"tenant":"t","observations"`, 1),
+	} {
+		before := len(core.Errors())
+		if st := postRaw(t, core, doc); st != http.StatusBadRequest {
+			t.Errorf("unknown field in %s: HTTP %d, want 400", name, st)
+			continue
+		}
+		if errs := core.Errors(); len(errs) != before+1 || !strings.Contains(errs[before], "not allowed") {
+			t.Errorf("unknown field in %s: errors %v", name, errs)
+		}
+	}
+	if n := len(core.Batches()); n != 1 {
+		t.Fatalf("%d batches stored, want only the valid one", n)
+	}
+}
+
+// TestFakeCoreAppliesContractRules: the rules collector.yaml states in
+// prose are answered as rejections, with the core's codes.
+func TestFakeCoreAppliesContractRules(t *testing.T) {
+	core := newCore(t)
+	cl, _ := submit.New(core.URL, core.Client())
+	probeCTLog := ctObservation(1)
+	probeCTLog.Method, probeCTLog.CTEntry = submit.MethodProbe, nil
+	withSNI := ctObservation(2)
+	withSNI.Target.SNI = "a.uvam.ai"
+	probeWithEntry := submit.Observation{
+		Target: submit.Target{Kind: submit.KindHostPortSNI, Host: "10.0.0.1", Port: 443},
+		Method: submit.MethodProbe, ObservedAt: t0, Outcome: submit.OutcomeTimeout,
+		CTEntry: &submit.CTEntry{Source: submit.CTSourceLog},
+	}
+	shortLogID := ctObservation(3)
+	shortLogID.CTEntry.LogID = []byte{1, 2, 3}
+	res, err := cl.Submit(context.Background(), []submit.Observation{ctObservation(0), probeCTLog, withSNI, probeWithEntry, shortLogID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var codes []string
+	for _, r := range res.Rejected {
+		codes = append(codes, strconv.Itoa(r.Index)+":"+r.Code)
+	}
+	want := []string{"1:invalid_target", "2:invalid_target", "3:invalid_ct_entry", "4:invalid_ct_entry"}
+	if res.Accepted != 1 || !reflect.DeepEqual(codes, want) {
+		t.Fatalf("accepted %d, rejected %v, want %v", res.Accepted, codes, want)
+	}
+}
+
+func TestOwnedDomains(t *testing.T) {
+	core := newCore(t)
+	core.SetDomains("example.com", "uvam.ai")
+	core.FailNext(http.StatusServiceUnavailable)
+	clk := clock.NewFake(t0)
+	cl, _ := submit.New(core.URL, core.Client(), submit.WithClock(clk))
+	got, err := cl.OwnedDomains(context.Background())
+	if err != nil || !reflect.DeepEqual(got, []string{"example.com", "uvam.ai"}) {
+		t.Fatalf("domains %v, %v", got, err)
+	}
+	if len(clk.Sleeps()) != 1 {
+		t.Fatalf("sleeps %v, want one retry", clk.Sleeps())
+	}
+	core.FailNext(http.StatusUnauthorized)
+	if _, err := cl.OwnedDomains(context.Background()); !submit.IsPermanent(err) {
+		t.Fatalf("401: want a permanent error, got %v", err)
 	}
 }
 
@@ -118,17 +215,27 @@ func TestSpecValidator(t *testing.T) {
 	if err := spec.Validate("ObservationBatch", []byte(valid)); err != nil {
 		t.Fatalf("valid batch refused: %v", err)
 	}
+	ct := `{"observations":[{"target":{"kind":"ct_log","host":"ct.example","port":443},"method":"ct","observed_at":"2026-10-24T00:00:00Z","outcome":"cert_seen","served_chain":["MAA="],"ct_entry":{"source":"log","log_id":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","entry_index":0,"timestamp":"2026-10-23T00:00:00Z"}}]}`
+	if err := spec.Validate("ObservationBatch", []byte(ct)); err != nil {
+		t.Fatalf("valid ct batch refused: %v", err)
+	}
 	bad := map[string]string{
-		"empty batch":     `{"observations":[]}`,
-		"extra property":  strings.Replace(valid, `"outcome"`, `"private_key":"x","outcome"`, 1),
-		"unknown method":  strings.Replace(valid, `"probe"`, `"guess"`, 1),
-		"port missing":    strings.Replace(valid, `,"port":443`, ``, 1),
-		"port too large":  strings.Replace(valid, `443`, `70000`, 1),
-		"bad time":        strings.Replace(valid, `2026-10-24T00:00:00Z`, `yesterday`, 1),
-		"not base64":      strings.Replace(valid, `"outcome":"timeout"`, `"outcome":"cert_seen","served_chain":["%%%"]`, 1),
-		"ct bad source":   strings.Replace(valid, `"outcome"`, `"ct":{"source":"google","matched_domain":"x"},"outcome"`, 1),
-		"ct without fp":   `{"observations":[{"target":{"kind":"ct_entry","host":"uvam.ai"},"method":"ct","observed_at":"2026-10-24T00:00:00Z","outcome":"cert_seen","served_chain":["MAA="]}]}`,
-		"fingerprint hex": `{"observations":[{"target":{"kind":"ct_entry","host":"uvam.ai","fingerprint":"XYZ"},"method":"ct","observed_at":"2026-10-24T00:00:00Z","outcome":"cert_seen","served_chain":["MAA="]}]}`,
+		"empty batch":         `{"observations":[]}`,
+		"extra property":      strings.Replace(valid, `"outcome"`, `"private_key":"x","outcome"`, 1),
+		"unknown method":      strings.Replace(valid, `"probe"`, `"guess"`, 1),
+		"port missing":        strings.Replace(valid, `,"port":443`, ``, 1),
+		"port too large":      strings.Replace(valid, `443`, `70000`, 1),
+		"bad time":            strings.Replace(valid, `2026-10-24T00:00:00Z`, `yesterday`, 1),
+		"not base64":          strings.Replace(valid, `"outcome":"timeout"`, `"outcome":"cert_seen","served_chain":["%%%"]`, 1),
+		"ct bad source":       strings.Replace(ct, `"source":"log"`, `"source":"google"`, 1),
+		"ct source missing":   strings.Replace(ct, `"source":"log",`, ``, 1),
+		"ct negative index":   strings.Replace(ct, `"entry_index":0`, `"entry_index":-1`, 1),
+		"ct index not int":    strings.Replace(ct, `"entry_index":0`, `"entry_index":"0"`, 1),
+		"ct log_id too long":  strings.Replace(ct, `AAA=`, `AAAAAAAA`, 1),
+		"ct bad timestamp":    strings.Replace(ct, `2026-10-23T00:00:00Z`, `1761177600000`, 1),
+		"ct_log port missing": strings.Replace(ct, `,"port":443`, ``, 1),
+		"old kind ct_entry":   strings.Replace(ct, `"kind":"ct_log"`, `"kind":"ct_entry"`, 1),
+		"old ct property":     strings.Replace(ct, `"ct_entry":`, `"ct":`, 1),
 	}
 	for name, doc := range bad {
 		if err := spec.Validate("ObservationBatch", []byte(doc)); err == nil {

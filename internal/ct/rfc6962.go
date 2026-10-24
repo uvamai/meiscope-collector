@@ -13,14 +13,13 @@ import (
 	"github.com/google/certificate-transparency-go/jsonclient"
 
 	"github.com/uvamai/meiscope-collector/internal/clock"
-	"github.com/uvamai/meiscope-collector/internal/submit"
 )
 
 // LogEntry is one entry read from a CT log.
 type LogEntry struct {
 	Index     uint64
 	Timestamp time.Time
-	Type      string // submit.EntryX509 or submit.EntryPrecert
+	Type      string // EntryX509 or EntryPrecert
 	// Cert is the certificate, or the precertificate as submitted.
 	Cert      []byte
 	Chain     [][]byte
@@ -74,8 +73,8 @@ func NewRFC6962Log(url string, keyDER []byte, rt http.RoundTripper, clk clock.Cl
 // URL returns the log URL.
 func (l *RFC6962Log) URL() string { return l.url }
 
-// Source returns submit.SourceRFC6962.
-func (l *RFC6962Log) Source() string { return submit.SourceRFC6962 }
+// Source returns SourceRFC6962.
+func (l *RFC6962Log) Source() string { return SourceRFC6962 }
 
 // LogID returns the log id when the key is known.
 func (l *RFC6962Log) LogID() []byte { return l.logID }
@@ -121,9 +120,9 @@ func (l *RFC6962Log) Entries(ctx context.Context, start, end uint64) ([]LogEntry
 		}
 		switch raw.Leaf.TimestampedEntry.EntryType {
 		case ctgo.X509LogEntryType:
-			e.Type = submit.EntryX509
+			e.Type = EntryX509
 		case ctgo.PrecertLogEntryType:
-			e.Type = submit.EntryPrecert
+			e.Type = EntryPrecert
 		default:
 			return nil, fmt.Errorf("log %s: entry %d: unknown entry type %d", l.url, idx, raw.Leaf.TimestampedEntry.EntryType)
 		}

@@ -4,12 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
-	ctgo "github.com/google/certificate-transparency-go"
-	cttls "github.com/google/certificate-transparency-go/tls"
 	ctx509 "github.com/google/certificate-transparency-go/x509"
 
 	"github.com/uvamai/meiscope-collector/internal/submit"
@@ -79,13 +79,12 @@ func normalizeName(n string) string {
 type parsedCert struct {
 	names   []string
 	serial  string // see normalizeSerial
-	scts    []submit.SCT
 	precert bool
 }
 
 // parseCert parses a certificate or precertificate leniently (CT holds
 // certificates that crypto/x509 rejects; design review finding 25) and
-// returns its DNS names (SAN dNSName and CN), serial and embedded SCTs.
+// returns its DNS names (SAN dNSName and CN) and serial.
 func parseCert(der []byte) (parsedCert, error) {
 	c, err := ctx509.ParseCertificate(der)
 	if ctx509.IsFatal(err) || c == nil {
@@ -109,16 +108,6 @@ func parseCert(der []byte) (parsedCert, error) {
 	if c.SerialNumber != nil {
 		pc.serial = normalizeSerial(c.SerialNumber.Text(16))
 	}
-	for _, s := range c.SCTList.SCTList {
-		var sct ctgo.SignedCertificateTimestamp
-		if rest, err := cttls.Unmarshal(s.Val, &sct); err != nil || len(rest) > 0 {
-			continue // a malformed SCT is not a reason to drop the certificate
-		}
-		pc.scts = append(pc.scts, submit.SCT{
-			LogID:     append([]byte(nil), sct.LogID.KeyID[:]...),
-			Timestamp: msToTime(sct.Timestamp),
-		})
-	}
 	return pc, nil
 }
 
@@ -133,18 +122,85 @@ func fingerprint(der []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// CT sources, as the poller names them in its statistics and logs.
+const (
+	SourceCertSpotter = "certspotter"
+	SourceRFC6962     = "rfc6962"
+	SourceStaticCT    = "static_ct"
+	SourceCrtSh       = "crtsh"
+)
+
+// Entry types of a log entry.
+const (
+	EntryX509    = "x509_entry"
+	EntryPrecert = "precert_entry"
+)
+
+// Evidence is where a certificate was found. Only Source, Endpoint and the
+// log fields (LogID, EntryIndex, Timestamp) reach the core; the rest serves
+// the poller's own bookkeeping (dedupe, coverage, logs).
+type Evidence struct {
+	// Source is one of the Source* constants.
+	Source string
+	// Endpoint is the URL of the log (RFC 6962 base, static-ct monitoring
+	// prefix) or search service that was read.
+	Endpoint      string
+	MatchedDomain string
+	DNSNames      []string
+	EntryType     string
+	// LogID (32 bytes), EntryIndex and Timestamp (the SCT timestamp) are set
+	// for entries read from a log; LogID only when the log's key is known.
+	LogID      []byte
+	EntryIndex *int64
+	Timestamp  *time.Time
+	// SourceID is the record id at a search service (Cert Spotter issuance
+	// id, crt.sh certificate id).
+	SourceID string
+}
+
+// wireSource maps a poller source to CTEntry.source.
+func wireSource(source string) string {
+	switch source {
+	case SourceCertSpotter:
+		return submit.CTSourceCertSpotter
+	case SourceCrtSh:
+		return submit.CTSourceCrtSh
+	}
+	return submit.CTSourceLog // SourceRFC6962, SourceStaticCT
+}
+
+// endpointTarget is the ct_log target of a log or service URL: its host and
+// port (the default port of the scheme when the URL names none).
+func endpointTarget(endpoint string) submit.Target {
+	t := submit.Target{Kind: submit.KindCTLog}
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return t
+	}
+	t.Host = u.Hostname()
+	switch p, err := strconv.Atoi(u.Port()); {
+	case err == nil:
+		t.Port = p
+	case u.Scheme == "https":
+		t.Port = 443
+	case u.Scheme == "http":
+		t.Port = 80
+	}
+	return t
+}
+
 // Found is a certificate for an owned domain, from one CT source.
 type Found struct {
 	// Chain is the (pre)certificate as logged, then its issuers, DER.
 	Chain       [][]byte
 	Fingerprint string
 	Serial      string
-	Evidence    submit.CTEvidence
+	Evidence    Evidence
 }
 
 // newFound builds a Found from a leaf and chain, or returns ok=false when
 // the leaf matches no owned domain.
-func newFound(domains Domains, leaf []byte, chain [][]byte, ev submit.CTEvidence) (Found, bool, error) {
+func newFound(domains Domains, leaf []byte, chain [][]byte, ev Evidence) (Found, bool, error) {
 	pc, err := parseCert(leaf)
 	if err != nil {
 		return Found{}, false, err
@@ -156,13 +212,10 @@ func newFound(domains Domains, leaf []byte, chain [][]byte, ev submit.CTEvidence
 	ev.MatchedDomain = d
 	ev.DNSNames = pc.names
 	if ev.EntryType == "" {
-		ev.EntryType = submit.EntryX509
+		ev.EntryType = EntryX509
 		if pc.precert {
-			ev.EntryType = submit.EntryPrecert
+			ev.EntryType = EntryPrecert
 		}
-	}
-	if len(pc.scts) > 0 {
-		ev.SCTs = pc.scts
 	}
 	full := make([][]byte, 0, 1+len(chain))
 	full = append(full, leaf)
@@ -173,20 +226,21 @@ func newFound(domains Domains, leaf []byte, chain [][]byte, ev submit.CTEvidence
 	return Found{Chain: full, Fingerprint: fingerprint(leaf), Serial: pc.serial, Evidence: ev}, true, nil
 }
 
-// Observation turns a Found into an observation with method ct and the log
-// entry as evidence.
+// Observation turns a Found into an observation with method ct: the target
+// is the log or service that was read (kind ct_log), served_chain has the
+// logged (pre)certificate first, and ct_entry says where it was found.
 func (f Found) Observation(observedAt time.Time) submit.Observation {
 	ev := f.Evidence
+	entry := &submit.CTEntry{Source: wireSource(ev.Source), EntryIndex: ev.EntryIndex, Timestamp: ev.Timestamp}
+	if len(ev.LogID) == sha256.Size {
+		entry.LogID = ev.LogID
+	}
 	return submit.Observation{
-		Target: submit.Target{
-			Kind:        submit.KindCTEntry,
-			Host:        ev.MatchedDomain,
-			Fingerprint: f.Fingerprint,
-		},
+		Target:      endpointTarget(ev.Endpoint),
 		Method:      submit.MethodCT,
 		ObservedAt:  observedAt.UTC(),
 		Outcome:     submit.OutcomeCertSeen,
 		ServedChain: f.Chain,
-		CT:          &ev,
+		CTEntry:     entry,
 	}
 }

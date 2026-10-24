@@ -1,14 +1,11 @@
 openapi: 3.1.0
 info:
   title: Meiscope collector API
-  version: 0.3.0-proposed
+  version: 0.4.0
   description: |
     Collector surface of the Meiscope core (ADR-0005: REST over mTLS,
     additive-only within /v1). The public collector repository vendors a copy
     of this file.
-    Vendored from core contract 0.2.0. The parts marked "WP0.4 (proposed)"
-    are additive extensions the CT poller needs (target kind ct_entry,
-    Target.fingerprint, Observation.ct); they are pending in the core.
     Every request is authenticated by the collector's mTLS client certificate,
     which identifies its tenant and collector record; no request body names a
     tenant.
@@ -24,7 +21,36 @@ tags:
     description: Liveness
   - name: observations
     description: Observation submission
+  - name: ct
+    description: Inputs of Certificate Transparency ingestion
 paths:
+  /owned-domains:
+    get:
+      operationId: listCollectorOwnedDomains
+      summary: The tenant's owned domains, for Certificate Transparency polling
+      description: |
+        The domains the CT poller queries issuance for (FR-DISC-020). Each
+        domain covers itself and every name below it.
+      tags: [ct]
+      responses:
+        "200":
+          description: The owned domains, sorted by name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnedDomainList"
+        "401":
+          description: The collector is not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          description: The list could not be read; retry with backoff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /healthz:
     get:
       operationId: getCollectorHealthz
@@ -161,42 +187,57 @@ components:
             maxLength: 87384
         tls:
           $ref: "#/components/schemas/TLSParams"
-        ct:
-          $ref: "#/components/schemas/CTEvidence"
+        ct_entry:
+          $ref: "#/components/schemas/CTEntry"
+    CTEntry:
+      type: object
+      additionalProperties: false
+      description: |
+        Where a ct observation's certificate was found, stored as ct_entry
+        evidence. Allowed with method ct only. The certificate itself (the
+        logged certificate or precertificate, leaf first, then the chain the
+        entry carried) is served_chain.
+      required: [source]
+      properties:
+        source:
+          type: string
+          enum: [log, cert_spotter, crt_sh]
+          description: A CT log read directly, or the Cert Spotter or crt.sh search service.
+        log_id:
+          type: string
+          format: byte
+          maxLength: 44
+          description: The log's ID (SHA-256 of its public key, RFC 6962 §3.2), base64.
+        entry_index:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Index of the entry in the log.
+        timestamp:
+          type: string
+          format: date-time
+          description: The entry's timestamp (the SCT timestamp, RFC 6962 §3.2).
     Target:
       type: object
       additionalProperties: false
-      required: [kind, host]
-      description: |
-        WP0.4 (proposed): port is required for host_port_sni only (a request
-        that was valid before stays valid); kind ct_entry has no port.
-      allOf:
-        - if:
-            properties:
-              kind:
-                const: host_port_sni
-          then:
-            required: [port]
-        - if:
-            properties:
-              kind:
-                const: ct_entry
-          then:
-            required: [fingerprint]
+      required: [kind, host, port]
       properties:
         kind:
           type: string
-          enum: [host_port_sni, ct_entry]
+          enum: [host_port_sni, ct_log]
           description: |
-            Locator kind. Other kinds (file, store, cloud resource) are added additively.
-            ct_entry (WP0.4, proposed): a certificate found in Certificate
-            Transparency; host is the owned domain it matched, fingerprint
-            identifies the certificate, and the observation carries ct.
+            Locator kind. host_port_sni: a network endpoint. ct_log: a
+            Certificate Transparency log or search service that was read
+            (method ct only, outcome cert_seen, no sni); every certificate
+            read from it is its own target. Other kinds (file, store, cloud
+            resource) are added additively.
         host:
           type: string
           minLength: 1
           maxLength: 253
-          description: Host name or IP address that was connected to; for ct_entry the owned domain that matched.
+          description: |
+            Host name or IP address that was connected to; for ct_log the host
+            name of the log or service (e.g. its API host).
         port:
           type: integer
           minimum: 1
@@ -205,91 +246,6 @@ components:
           type: string
           maxLength: 253
           description: Server name sent in the TLS ClientHello; empty or absent when none was sent.
-        fingerprint:
-          type: string
-          pattern: "^[0-9a-f]{64}$"
-          description: |
-            WP0.4 (proposed), ct_entry only: lowercase hex SHA-256 of the leaf
-            (served_chain[0]). Part of the target, so the core's idempotency
-            key (target, method, observed_at) is distinct per certificate.
-    CTEvidence:
-      type: object
-      additionalProperties: false
-      description: |
-        WP0.4 (proposed). The Certificate Transparency entry, or search-service
-        record, behind an observation with method ct; stored as evidence.
-        served_chain holds the (pre)certificate as logged, then its issuers.
-      required: [source, matched_domain]
-      properties:
-        source:
-          type: string
-          enum: [certspotter, rfc6962, static_ct, crtsh]
-          description: |
-            certspotter: Cert Spotter API; rfc6962: an RFC 6962 log read
-            directly; static_ct: a Static CT API (tiled) log read directly;
-            crtsh: crt.sh, used only as a fallback.
-        matched_domain:
-          type: string
-          minLength: 1
-          maxLength: 253
-          description: The owned domain whose list matched.
-        dns_names:
-          type: array
-          maxItems: 1000
-          items:
-            type: string
-            maxLength: 253
-          description: DNS names of the certificate (SAN dNSName, else CN).
-        entry_type:
-          type: string
-          enum: [x509_entry, precert_entry]
-        log_url:
-          type: string
-          maxLength: 2048
-          description: Base URL of the log (rfc6962) or its monitoring prefix (static_ct).
-        log_id:
-          type: string
-          format: byte
-          maxLength: 64
-          description: SHA-256 of the log's public key, when known.
-        entry_index:
-          type: integer
-          minimum: 0
-          description: Index of the entry in the log (rfc6962, static_ct).
-        entry_timestamp:
-          type: string
-          format: date-time
-          description: Timestamp of the log entry (rfc6962, static_ct).
-        leaf_input:
-          type: string
-          format: byte
-          maxLength: 174764
-          description: The RFC 6962 MerkleTreeLeaf as logged (rfc6962, static_ct).
-        extra_data:
-          type: string
-          format: byte
-          maxLength: 1048576
-          description: The RFC 6962 extra_data of the entry (rfc6962).
-        source_id:
-          type: string
-          maxLength: 64
-          description: Record id at the search service (Cert Spotter issuance id, crt.sh id).
-        scts:
-          type: array
-          maxItems: 64
-          description: SCTs embedded in the certificate (which logs hold it).
-          items:
-            type: object
-            additionalProperties: false
-            required: [log_id, timestamp]
-            properties:
-              log_id:
-                type: string
-                format: byte
-                maxLength: 64
-              timestamp:
-                type: string
-                format: date-time
     TLSParams:
       type: object
       additionalProperties: false
@@ -346,8 +302,19 @@ components:
             - observed_at_in_future
             - invalid_served_chain
             - chain_outcome_mismatch
+            - invalid_ct_entry
         message:
           type: string
+    OwnedDomainList:
+      type: object
+      additionalProperties: false
+      required: [domains]
+      properties:
+        domains:
+          type: array
+          items:
+            type: string
+            description: A domain name, lower case, without a trailing dot.
     Problem:
       type: object
       description: Error body (RFC 9457 problem details, subset).

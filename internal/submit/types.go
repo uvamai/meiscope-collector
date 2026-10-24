@@ -2,10 +2,10 @@ package submit
 
 import "time"
 
-// Wire types of POST /collector/v1/observations, hand-written from
-// api/collector.yaml (core contract 0.2.0 plus the additive CT extensions
-// marked "WP0.4" there). Field names and JSON tags follow the schema; the
-// fake core in client_test.go validates every request against the YAML.
+// Wire types of the collector API (/collector/v1), hand-written from
+// api/collector.yaml, which is vendored byte for byte from the core (core
+// contract 0.4.0). Field names and JSON tags follow the schema; the fake
+// core in submittest validates every request against the YAML.
 
 // Method values (schema Observation.method).
 const (
@@ -27,9 +27,10 @@ const (
 // Target kinds (schema Target.kind).
 const (
 	KindHostPortSNI = "host_port_sni"
-	// KindCTEntry is a certificate found in Certificate Transparency
-	// (WP0.4 extension).
-	KindCTEntry = "ct_entry"
+	// KindCTLog is a CT log or search service that was read (method ct,
+	// outcome cert_seen, no SNI). The core makes every certificate read
+	// from it its own target.
+	KindCTLog = "ct_log"
 )
 
 // MaxBatch is the largest batch the core accepts (ObservationBatch.maxItems).
@@ -46,23 +47,22 @@ type Observation struct {
 	Method     string    `json:"method"`
 	ObservedAt time.Time `json:"observed_at"`
 	Outcome    string    `json:"outcome"`
-	// ServedChain is leaf first, each certificate DER (base64 in JSON).
-	ServedChain [][]byte    `json:"served_chain,omitempty"`
-	TLS         *TLSParams  `json:"tls,omitempty"`
-	CT          *CTEvidence `json:"ct,omitempty"`
+	// ServedChain is leaf first, each certificate DER (base64 in JSON). For
+	// method ct it is the logged certificate or precertificate, then the
+	// chain the entry carried.
+	ServedChain [][]byte   `json:"served_chain,omitempty"`
+	TLS         *TLSParams `json:"tls,omitempty"`
+	CTEntry     *CTEntry   `json:"ct_entry,omitempty"`
 }
 
 // Target is the locator of an observation.
 type Target struct {
 	Kind string `json:"kind"`
+	// Host is the endpoint connected to; for ct_log the API host of the log
+	// or service.
 	Host string `json:"host"`
-	// Port is required for host_port_sni and absent for ct_entry.
-	Port int    `json:"port,omitempty"`
+	Port int    `json:"port"`
 	SNI  string `json:"sni,omitempty"`
-	// Fingerprint is the lowercase hex SHA-256 of the leaf DER; ct_entry only
-	// (WP0.4 extension). It makes the core's idempotency key (target, method,
-	// observed_at) distinct per certificate.
-	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 // TLSParams are negotiated connection parameters (probe observations).
@@ -75,46 +75,22 @@ type TLSParams struct {
 	Plugin      string `json:"plugin,omitempty"`
 }
 
-// CT sources (schema CTEvidence.source).
+// CT entry sources (schema CTEntry.source).
 const (
-	SourceCertSpotter = "certspotter"
-	SourceRFC6962     = "rfc6962"
-	SourceStaticCT    = "static_ct"
-	SourceCrtSh       = "crtsh"
+	CTSourceLog         = "log"
+	CTSourceCertSpotter = "cert_spotter"
+	CTSourceCrtSh       = "crt_sh"
 )
 
-// CT entry types (schema CTEvidence.entry_type).
-const (
-	EntryX509    = "x509_entry"
-	EntryPrecert = "precert_entry"
-)
-
-// CTEvidence is the CT log entry (or search-service record) that produced an
-// observation with method ct (WP0.4 extension).
-type CTEvidence struct {
-	Source        string   `json:"source"`
-	MatchedDomain string   `json:"matched_domain"`
-	DNSNames      []string `json:"dns_names,omitempty"`
-	EntryType     string   `json:"entry_type,omitempty"`
-	// LogURL, EntryIndex, EntryTimestamp and LeafInput are set for entries
-	// read from a log (rfc6962, static_ct); ExtraData for rfc6962 only.
-	LogURL         string     `json:"log_url,omitempty"`
-	LogID          []byte     `json:"log_id,omitempty"`
-	EntryIndex     *int64     `json:"entry_index,omitempty"`
-	EntryTimestamp *time.Time `json:"entry_timestamp,omitempty"`
-	LeafInput      []byte     `json:"leaf_input,omitempty"`
-	ExtraData      []byte     `json:"extra_data,omitempty"`
-	// SourceID is the record id at a search service (Cert Spotter issuance
-	// id, crt.sh certificate id).
-	SourceID string `json:"source_id,omitempty"`
-	// SCTs are the SCTs embedded in the certificate: which logs hold it.
-	SCTs []SCT `json:"scts,omitempty"`
-}
-
-// SCT is an embedded signed certificate timestamp.
-type SCT struct {
-	LogID     []byte    `json:"log_id"`
-	Timestamp time.Time `json:"timestamp"`
+// CTEntry is where a ct observation's certificate was found (schema
+// CTEntry); allowed with method ct only.
+type CTEntry struct {
+	Source string `json:"source"`
+	// LogID is the 32-byte log ID (SHA-256 of the log key), base64 in JSON;
+	// omitted when not known.
+	LogID      []byte     `json:"log_id,omitempty"`
+	EntryIndex *int64     `json:"entry_index,omitempty"`
+	Timestamp  *time.Time `json:"timestamp,omitempty"`
 }
 
 // ObservationBatchResult is the 202 response.
@@ -136,4 +112,9 @@ type Problem struct {
 	Title  string `json:"title"`
 	Status int    `json:"status"`
 	Detail string `json:"detail,omitempty"`
+}
+
+// OwnedDomainList is the answer of GET /collector/v1/owned-domains.
+type OwnedDomainList struct {
+	Domains []string `json:"domains"`
 }

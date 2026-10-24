@@ -1,6 +1,7 @@
-// Package submit sends observations to the core: POST
-// /collector/v1/observations with gzip-compressed JSON batches of at most
-// 1000 observations, retried with back-off (ADR-0005).
+// Package submit is the collector's client of the core's collector API
+// (ADR-0005): POST /collector/v1/observations with gzip-compressed JSON
+// batches of at most 1000 observations, and GET /collector/v1/owned-domains,
+// both retried with back-off.
 package submit
 
 import (
@@ -20,8 +21,13 @@ import (
 	"github.com/uvamai/meiscope-collector/internal/retry"
 )
 
-// ObservationsPath is the endpoint below the core base URL.
-const ObservationsPath = "/collector/v1/observations"
+// Endpoints below the core base URL.
+const (
+	ObservationsPath  = "/collector/v1/observations"
+	OwnedDomainsPath  = "/collector/v1/owned-domains"
+	maxResponseBytes  = 16 << 20
+	maxDiscardedBytes = 1 << 20
+)
 
 // MaxWireBytes is the core's limit on the compressed body (10 MiB); batches
 // are split before they reach it.
@@ -98,7 +104,7 @@ type PermanentError struct {
 }
 
 func (e *PermanentError) Error() string {
-	return fmt.Sprintf("core refused the batch: HTTP %d %s %s", e.Status, e.Problem.Title, e.Problem.Detail)
+	return fmt.Sprintf("core refused the request: HTTP %d %s %s", e.Status, e.Problem.Title, e.Problem.Detail)
 }
 
 // Submit sends obs in batches. It stops at the first batch that fails and
@@ -159,14 +165,42 @@ func encode(obs []Observation) ([]byte, error) {
 }
 
 func (c *Client) post(ctx context.Context, body []byte) (ObservationBatchResult, error) {
-	endpoint := c.base.JoinPath(ObservationsPath).String()
+	var out ObservationBatchResult
+	err := c.do(ctx, http.MethodPost, ObservationsPath, body, http.StatusAccepted, &out)
+	if err != nil {
+		return ObservationBatchResult{}, fmt.Errorf("submit observations: %w", err)
+	}
+	return out, nil
+}
+
+// OwnedDomains returns the tenant's owned domains (GET
+// /collector/v1/owned-domains), the domains the CT poller queries.
+func (c *Client) OwnedDomains(ctx context.Context) ([]string, error) {
+	var out OwnedDomainList
+	if err := c.do(ctx, http.MethodGet, OwnedDomainsPath, nil, http.StatusOK, &out); err != nil {
+		return nil, fmt.Errorf("owned domains: %w", err)
+	}
+	return out.Domains, nil
+}
+
+// do sends one request, retrying network errors, 429 and 5xx with back-off,
+// and decodes a want-status JSON answer into out. Any other status is a
+// PermanentError.
+func (c *Client) do(ctx context.Context, method, path string, body []byte, want int, out any) error {
+	endpoint := c.base.JoinPath(path).String()
 	for attempt := 0; ; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-		if err != nil {
-			return ObservationBatchResult{}, err
+		var rd io.Reader
+		if body != nil {
+			rd = bytes.NewReader(body)
 		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Content-Encoding", "gzip")
+		req, err := http.NewRequestWithContext(ctx, method, endpoint, rd)
+		if err != nil {
+			return err
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Encoding", "gzip")
+		}
 		req.Header.Set("Accept", "application/json")
 		if c.userAgent != "" {
 			req.Header.Set("User-Agent", c.userAgent)
@@ -176,34 +210,33 @@ func (c *Client) post(ctx context.Context, body []byte) (ObservationBatchResult,
 		switch {
 		case err != nil:
 			if ctx.Err() != nil {
-				return ObservationBatchResult{}, ctx.Err()
+				return ctx.Err()
 			}
-		case resp.StatusCode == http.StatusAccepted:
-			var out ObservationBatchResult
-			derr := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&out)
+		case resp.StatusCode == want:
+			derr := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(out)
 			_ = resp.Body.Close()
 			if derr != nil {
-				return ObservationBatchResult{}, fmt.Errorf("decode batch result: %w", derr)
+				return fmt.Errorf("decode answer: %w", derr)
 			}
-			return out, nil
+			return nil
 		case retry.Retryable(resp.StatusCode):
 			hdr = resp.Header
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDiscardedBytes))
 			_ = resp.Body.Close()
 			err = fmt.Errorf("HTTP %d", resp.StatusCode)
 		default:
 			p := readProblem(resp)
-			return ObservationBatchResult{}, &PermanentError{Status: resp.StatusCode, Problem: p}
+			return &PermanentError{Status: resp.StatusCode, Problem: p}
 		}
 		if attempt >= c.policy.Attempts {
-			return ObservationBatchResult{}, fmt.Errorf("submit observations: giving up after %d attempts: %w", attempt+1, err)
+			return fmt.Errorf("giving up after %d attempts: %w", attempt+1, err)
 		}
 		wait, ok := c.policy.Wait(attempt, hdr, c.clk.Now())
 		if !ok {
-			return ObservationBatchResult{}, fmt.Errorf("submit observations: core asked to retry after %s: %w", wait, err)
+			return fmt.Errorf("core asked to retry after %s: %w", wait, err)
 		}
 		if err := c.clk.Sleep(ctx, wait); err != nil {
-			return ObservationBatchResult{}, err
+			return err
 		}
 	}
 }

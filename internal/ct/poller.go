@@ -3,7 +3,9 @@
 // Cert Spotter API, tails selected CT logs directly (RFC 6962 through
 // certificate-transparency-go, and static-ct tiled logs), falls back to
 // crt.sh with a conservative rate limit, dedupes by SHA-256 fingerprint and
-// builds observations with method ct and the log entry as evidence.
+// builds observations with method ct: target kind ct_log (the log or
+// service that was read), the logged certificate or precertificate first in
+// served_chain, and ct_entry (source, log id, entry index, SCT timestamp).
 //
 // It only reads public CT data over HTTPS. It never connects to a host of
 // the customer.
@@ -159,7 +161,7 @@ func (p *Poller) Poll(ctx context.Context, st *State) *Cycle {
 			continue
 		}
 		if err := p.pollCertSpotter(ctx, st, c, dd, d); err != nil {
-			c.fail(submit.SourceCertSpotter, err)
+			c.fail(SourceCertSpotter, err)
 			log.Warn("cert spotter failed", "domain", d, "error", err)
 			fallback = append(fallback, d)
 		}
@@ -185,7 +187,7 @@ func (p *Poller) Poll(ctx context.Context, st *State) *Cycle {
 			n, err := p.pollCrtSh(ctx, c, dd, d, budget)
 			budget -= n
 			if err != nil {
-				c.fail(submit.SourceCrtSh, err)
+				c.fail(SourceCrtSh, err)
 				log.Warn("crt.sh fallback failed", "domain", d, "error", err)
 			}
 			if ctx.Err() != nil || budget <= 0 {
@@ -199,13 +201,13 @@ func (p *Poller) Poll(ctx context.Context, st *State) *Cycle {
 func (p *Poller) pollCertSpotter(ctx context.Context, st *State, c *Cycle, dd *dedupe, domain string) error {
 	items, cursor, err := p.CertSpotter.Issuances(ctx, domain, st.CertSpotterAfter[domain])
 	for _, it := range items {
-		f, ok, perr := newFound(p.Domains, it.CertDER, nil, submit.CTEvidence{Source: submit.SourceCertSpotter, SourceID: it.ID})
+		f, ok, perr := newFound(p.Domains, it.CertDER, nil, Evidence{Source: SourceCertSpotter, Endpoint: p.CertSpotter.base, SourceID: it.ID})
 		if perr != nil {
-			c.fail(submit.SourceCertSpotter, fmt.Errorf("cert spotter issuance %s: %w", it.ID, perr))
+			c.fail(SourceCertSpotter, fmt.Errorf("cert spotter issuance %s: %w", it.ID, perr))
 			continue
 		}
 		if ok {
-			dd.add(submit.SourceCertSpotter, f)
+			dd.add(SourceCertSpotter, f)
 		}
 	}
 	if cursor != "" {
@@ -271,15 +273,13 @@ func (p *Poller) consider(ctx context.Context, c *Cycle, dd *dedupe, l Log, e *L
 	}
 	idx := int64(e.Index) //nolint:gosec // indices are far below 2^63
 	ts := e.Timestamp
-	ev := submit.CTEvidence{
-		Source:         l.Source(),
-		EntryType:      e.Type,
-		LogURL:         l.URL(),
-		LogID:          l.LogID(),
-		EntryIndex:     &idx,
-		EntryTimestamp: &ts,
-		LeafInput:      e.LeafInput,
-		ExtraData:      e.ExtraData,
+	ev := Evidence{
+		Source:     l.Source(),
+		Endpoint:   l.URL(),
+		EntryType:  e.Type,
+		LogID:      l.LogID(),
+		EntryIndex: &idx,
+		Timestamp:  &ts,
 	}
 	f, ok, err := newFound(p.Domains, e.Cert, e.Chain, ev)
 	if err != nil || !ok {
@@ -310,13 +310,13 @@ func (p *Poller) pollCrtSh(ctx context.Context, c *Cycle, dd *dedupe, domain str
 		if err != nil {
 			return fetched, err
 		}
-		f, ok, err := newFound(p.Domains, der, nil, submit.CTEvidence{Source: submit.SourceCrtSh, SourceID: fmt.Sprint(r.ID)})
+		f, ok, err := newFound(p.Domains, der, nil, Evidence{Source: SourceCrtSh, Endpoint: p.CrtSh.base, SourceID: fmt.Sprint(r.ID)})
 		if err != nil {
-			c.fail(submit.SourceCrtSh, fmt.Errorf("crt.sh %d: %w", r.ID, err))
+			c.fail(SourceCrtSh, fmt.Errorf("crt.sh %d: %w", r.ID, err))
 			continue
 		}
 		if ok {
-			dd.add(submit.SourceCrtSh, f)
+			dd.add(SourceCrtSh, f)
 		}
 	}
 	return fetched, nil

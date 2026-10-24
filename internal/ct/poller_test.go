@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -108,7 +109,7 @@ func TestPollDedupesByFingerprint(t *testing.T) {
 	if len(c.Errors) != 0 {
 		t.Fatal(c.Errors)
 	}
-	s := c.Stats[submit.SourceCertSpotter]
+	s := c.Stats[SourceCertSpotter]
 	if s.Matched != 5 || s.New != 4 || len(c.Found) != 4 {
 		t.Fatalf("matched %d new %d found %d; want 5, 4, 4", s.Matched, s.New, len(c.Found))
 	}
@@ -130,7 +131,7 @@ func TestPollDedupesByFingerprint(t *testing.T) {
 	// Even from scratch (cursors lost), seen fingerprints are not resent.
 	st.CertSpotterAfter = map[string]string{}
 	c = p.Poll(context.Background(), st)
-	if len(c.Found) != 0 || c.Stats[submit.SourceCertSpotter].Matched != 5 {
+	if len(c.Found) != 0 || c.Stats[SourceCertSpotter].Matched != 5 {
 		t.Fatalf("second cycle found %d", len(c.Found))
 	}
 }
@@ -163,23 +164,23 @@ func TestPollTailsRFC6962Log(t *testing.T) {
 		t.Fatalf("found %d, want 2", len(c.Found))
 	}
 	wantIdx := []int64{1, 2}
-	wantType := []string{submit.EntryX509, submit.EntryPrecert}
+	wantType := []string{EntryX509, EntryPrecert}
+	wantLeaf := [][]byte{a, b}
 	for i, f := range c.Found {
 		ev := f.Evidence
-		if ev.Source != submit.SourceRFC6962 || *ev.EntryIndex != wantIdx[i] || ev.EntryType != wantType[i] || ev.LogURL != srv.URL {
+		if ev.Source != SourceRFC6962 || *ev.EntryIndex != wantIdx[i] || ev.EntryType != wantType[i] || ev.Endpoint != srv.URL {
 			t.Errorf("found %d: evidence %+v", i, ev)
 		}
-		if !bytes.Equal(ev.LeafInput, entries[wantIdx[i]].LeafInput) || !bytes.Equal(ev.ExtraData, entries[wantIdx[i]].ExtraData) {
-			t.Errorf("found %d: log entry not carried as evidence", i)
+		// The logged certificate or precertificate comes first, then the
+		// chain the entry carried.
+		if len(f.Chain) != 2 || !bytes.Equal(f.Chain[0], wantLeaf[i]) || !bytes.Equal(f.Chain[1], ca.der) {
+			t.Errorf("found %d: chain of %d, not the logged entry first", i, len(f.Chain))
 		}
-		if len(f.Chain) != 2 || !bytes.Equal(f.Chain[1], ca.der) {
-			t.Errorf("found %d: chain of %d", i, len(f.Chain))
-		}
-		if !ev.EntryTimestamp.Equal(time.UnixMilli(int64(1000 * (wantIdx[i] + 1)))) {
-			t.Errorf("found %d: timestamp %v", i, ev.EntryTimestamp)
+		if !ev.Timestamp.Equal(time.UnixMilli(int64(1000 * (wantIdx[i] + 1)))) {
+			t.Errorf("found %d: timestamp %v", i, ev.Timestamp)
 		}
 	}
-	if s := c.Stats[submit.SourceRFC6962]; s.Matched != 3 || s.New != 2 {
+	if s := c.Stats[SourceRFC6962]; s.Matched != 3 || s.New != 2 {
 		t.Fatalf("stats %+v", s)
 	}
 	c.Commit(st)
@@ -216,7 +217,7 @@ func TestPollTailsStaticCTLog(t *testing.T) {
 		t.Fatalf("found %d, want 4", len(c.Found))
 	}
 	for i, f := range c.Found {
-		if f.Evidence.Source != submit.SourceStaticCT || *f.Evidence.EntryIndex != int64(i) || len(f.Chain) != 3 {
+		if f.Evidence.Source != SourceStaticCT || *f.Evidence.EntryIndex != int64(i) || len(f.Chain) != 3 {
 			t.Errorf("entry %d: %+v chain %d", i, f.Evidence, len(f.Chain))
 		}
 	}
@@ -280,10 +281,10 @@ func TestCrtShOnlyAsFallback(t *testing.T) {
 		Clock:           clk,
 	}
 	c := p.Poll(context.Background(), NewState())
-	if c.Stats[submit.SourceCertSpotter].Errors != 1 {
-		t.Fatalf("cert spotter errors %d", c.Stats[submit.SourceCertSpotter].Errors)
+	if c.Stats[SourceCertSpotter].Errors != 1 {
+		t.Fatalf("cert spotter errors %d", c.Stats[SourceCertSpotter].Errors)
 	}
-	s := c.Stats[submit.SourceCrtSh]
+	s := c.Stats[SourceCrtSh]
 	// Three downloads (budget), two distinct certificates: deduped by fingerprint.
 	if s.Matched != 3 || s.New != 2 {
 		t.Fatalf("crt.sh stats %+v", s)
@@ -327,17 +328,21 @@ func TestComputeCoverage(t *testing.T) {
 }
 
 // TestObservationsSubmittedToFakeCore is the end-to-end check: certificates
-// from Cert Spotter, an RFC 6962 log and a static-ct log become
-// observations with method ct and the log entry as evidence, batched and
-// gzip-submitted to a fake core that validates them against collector.yaml.
+// from every source type (Cert Spotter, an RFC 6962 log, a static-ct log
+// and the crt.sh fallback) become observations in the core's contract
+// shape, batched and gzip-submitted to a fake core that validates them
+// against the vendored collector.yaml and accepts every one of them.
 func TestObservationsSubmittedToFakeCore(t *testing.T) {
 	ca := newTestCA(t)
 	cs := newFakeCertSpotter(t, csFixture, 2)
+	newCert := ca.leaf(t, 20, false, "new.uvam.ai")
+	preCert := ca.leaf(t, 21, true, "pre.uvam.ai")
 	log := fakeRFC6962(t, []ctgo.LeafEntry{
-		fakeLogEntry(t, ca, ca.leaf(t, 20, false, "new.uvam.ai"), false, 1),
-		fakeLogEntry(t, ca, ca.leaf(t, 21, true, "pre.uvam.ai"), true, 2),
+		fakeLogEntry(t, ca, newCert, false, 1),
+		fakeLogEntry(t, ca, preCert, true, 2),
 	}, 10)
 	static := newFakeStatic(t, false)
+	crt := fakeCrtSh(t, fixtureDERs(t)[:2])
 	core, err := submittest.NewCore()
 	if err != nil {
 		t.Fatal(err)
@@ -346,11 +351,12 @@ func TestObservationsSubmittedToFakeCore(t *testing.T) {
 
 	clk := clock.NewFake(t0)
 	rl, _ := NewRFC6962Log(log.URL, nil, nil, clk, LogPoliteness, "test")
+	staticLogID := sha256.Sum256([]byte("static log key"))
 	ds, _ := ParseDomains([]string{"uvam.ai", "flowers-to-the-world.com"})
 	p := &Poller{
 		Domains:     ds,
 		CertSpotter: NewCertSpotter(cs.URL, nil, clk, CertSpotterPoliteness, "test", nil),
-		Logs:        []Log{rl, NewStaticLog(static.URL+"/log", nil, nil, clk, LogPoliteness, "test")},
+		Logs:        []Log{rl, NewStaticLog(static.URL+"/log", staticLogID[:], nil, clk, LogPoliteness, "test")},
 		Clock:       clk,
 	}
 	st := NewState()
@@ -358,11 +364,17 @@ func TestObservationsSubmittedToFakeCore(t *testing.T) {
 	if len(cycle.Errors) != 0 {
 		t.Fatal(cycle.Errors)
 	}
-	obs := cycle.Observations()
-	if len(obs) != 4+2+4 {
-		t.Fatalf("%d observations, want 10", len(obs))
+	// crt.sh is a fallback only: a second poller without Cert Spotter uses it.
+	fallback := &Poller{Domains: Domains{"uvam.ai"}, CrtSh: NewCrtSh(crt.URL, nil, clk, CrtShPoliteness, "test"), MaxCrtShFetches: 2, Clock: clk}
+	crtCycle := fallback.Poll(context.Background(), NewState())
+	if len(crtCycle.Errors) != 0 {
+		t.Fatal(crtCycle.Errors)
 	}
-	sub, err := submit.New(core.URL, core.Client(), submit.WithClock(clk), submit.WithBatchSize(4))
+	obs := append(cycle.Observations(), crtCycle.Observations()...)
+	if len(obs) != 4+2+4+2 {
+		t.Fatalf("%d observations, want 12", len(obs))
+	}
+	sub, err := submit.New(core.URL, core.Client(), submit.WithClock(clk), submit.WithBatchSize(5))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,9 +382,12 @@ func TestObservationsSubmittedToFakeCore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("submit: %v (core errors %v)", err, core.Errors())
 	}
-	if res.Batches != 3 || res.Accepted != 10 || len(core.Errors()) != 0 {
+	if res.Batches != 3 || res.Accepted != 12 || len(res.Rejected) != 0 || len(core.Errors()) != 0 {
 		t.Fatalf("result %+v, core errors %v", res, core.Errors())
 	}
+
+	// Each source's target is the host and port of the service that was read.
+	hostPort := func(u string) string { return strings.TrimPrefix(u, "http://") }
 	sources := map[string]int{}
 	for _, b := range core.Batches() {
 		var batch submit.ObservationBatch
@@ -380,25 +395,71 @@ func TestObservationsSubmittedToFakeCore(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, o := range batch.Observations {
-			if o.Method != submit.MethodCT || o.Outcome != submit.OutcomeCertSeen || o.Target.Kind != submit.KindCTEntry || o.CT == nil {
+			e := o.CTEntry
+			if o.Method != submit.MethodCT || o.Outcome != submit.OutcomeCertSeen || o.Target.Kind != submit.KindCTLog || o.Target.SNI != "" || e == nil {
 				t.Fatalf("observation %+v", o)
 			}
-			sum := sha256.Sum256(o.ServedChain[0])
-			if o.Target.Fingerprint != hex.EncodeToString(sum[:]) {
-				t.Fatal("target fingerprint is not the leaf SHA-256")
+			target := o.Target.Host + ":" + strconv.Itoa(o.Target.Port)
+			sources[e.Source+" "+target]++
+			if len(o.ServedChain) == 0 {
+				t.Fatal("no served_chain")
 			}
-			if o.CT.Source != submit.SourceCertSpotter && (o.CT.EntryIndex == nil || len(o.CT.LeafInput) == 0) {
-				t.Fatalf("log observation without its entry: %+v", o.CT)
+			switch e.Source {
+			case submit.CTSourceLog:
+				if e.EntryIndex == nil || e.Timestamp == nil {
+					t.Fatalf("log entry without index or timestamp: %+v", e)
+				}
+				switch target {
+				case hostPort(static.URL):
+					if !bytes.Equal(e.LogID, staticLogID[:]) || len(o.ServedChain) != 3 {
+						t.Fatalf("static-ct entry: log id %x, chain %d", e.LogID, len(o.ServedChain))
+					}
+				case hostPort(log.URL):
+					// The log key is not configured: no log id.
+					if e.LogID != nil || len(o.ServedChain) != 2 || !bytes.Equal(o.ServedChain[1], ca.der) {
+						t.Fatalf("RFC 6962 entry: log id %x, chain %d", e.LogID, len(o.ServedChain))
+					}
+					if want := map[int64][]byte{0: newCert, 1: preCert}[*e.EntryIndex]; !bytes.Equal(o.ServedChain[0], want) {
+						t.Fatalf("RFC 6962 entry %d: the logged (pre)certificate is not first", *e.EntryIndex)
+					}
+				default:
+					t.Fatalf("log target %s", target)
+				}
+			case submit.CTSourceCertSpotter, submit.CTSourceCrtSh:
+				// A search service names no log entry.
+				if e.LogID != nil || e.EntryIndex != nil || e.Timestamp != nil || len(o.ServedChain) != 1 {
+					t.Fatalf("search-service entry %+v, chain %d", e, len(o.ServedChain))
+				}
+			default:
+				t.Fatalf("source %q", e.Source)
 			}
-			sources[o.CT.Source]++
 		}
 	}
-	if !reflect.DeepEqual(sources, map[string]int{submit.SourceCertSpotter: 4, submit.SourceRFC6962: 2, submit.SourceStaticCT: 4}) {
-		t.Fatalf("sources %v", sources)
+	want := map[string]int{
+		"cert_spotter " + hostPort(cs.URL): 4,
+		"log " + hostPort(log.URL):         2,
+		"log " + hostPort(static.URL):      4,
+		"crt_sh " + hostPort(crt.URL):      2,
+	}
+	if !reflect.DeepEqual(sources, want) {
+		t.Fatalf("sources %v, want %v", sources, want)
 	}
 	cycle.Commit(st)
 	if again := p.Poll(context.Background(), st); len(again.Found) != 0 {
 		t.Fatalf("second cycle found %d new", len(again.Found))
+	}
+}
+
+func TestEndpointTarget(t *testing.T) {
+	for in, want := range map[string]submit.Target{
+		"https://api.certspotter.com":                  {Kind: submit.KindCTLog, Host: "api.certspotter.com", Port: 443},
+		"https://ct.googleapis.com/logs/us1/argon2026": {Kind: submit.KindCTLog, Host: "ct.googleapis.com", Port: 443},
+		"http://127.0.0.1:8080/log":                    {Kind: submit.KindCTLog, Host: "127.0.0.1", Port: 8080},
+		"http://crt.example":                           {Kind: submit.KindCTLog, Host: "crt.example", Port: 80},
+	} {
+		if got := endpointTarget(in); got != want {
+			t.Errorf("endpointTarget(%q) = %+v, want %+v", in, got, want)
+		}
 	}
 }
 

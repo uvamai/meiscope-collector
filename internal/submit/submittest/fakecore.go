@@ -2,6 +2,7 @@ package submittest
 
 import (
 	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -17,16 +18,28 @@ func SpecPath() string {
 	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "collector.yaml")
 }
 
-// Core is a fake core. Each request must be gzip JSON that validates as an
-// ObservationBatch; an invalid request gets 400 and is recorded in Errors.
+// Core is a fake core. Each observations request must be gzip JSON that
+// validates as an ObservationBatch; an invalid request gets 400 and is
+// recorded in Errors. Observations that break a rule the contract states in
+// prose (see rejection) are answered in rejected, as the core does.
+// GET /collector/v1/owned-domains answers with the domains of SetDomains.
 type Core struct {
 	*httptest.Server
 	spec *Spec
 
-	mu      sync.Mutex
-	batches []json.RawMessage
-	errors  []string
-	forced  []int
+	mu       sync.Mutex
+	batches  []json.RawMessage
+	errors   []string
+	rejected []Rejection
+	forced   []int
+	domains  []string
+}
+
+// Rejection is an observation the fake core refused (schema Rejection).
+type Rejection struct {
+	Index   int    `json:"index"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // NewCore starts a fake core validating against the vendored spec.
@@ -38,6 +51,7 @@ func NewCore() (*Core, error) {
 	c := &Core{spec: spec}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /collector/v1/observations", c.handle)
+	mux.HandleFunc("GET /collector/v1/owned-domains", c.handleDomains)
 	c.Server = httptest.NewTLSServer(mux) // the core is https only; use Client()
 	return c, nil
 }
@@ -48,6 +62,36 @@ func (c *Core) FailNext(statuses ...int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.forced = append(c.forced, statuses...)
+}
+
+// SetDomains sets the owned domains GET /collector/v1/owned-domains returns.
+func (c *Core) SetDomains(domains ...string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.domains = append([]string{}, domains...)
+}
+
+func (c *Core) handleDomains(w http.ResponseWriter, _ *http.Request) {
+	c.mu.Lock()
+	if len(c.forced) > 0 {
+		st := c.forced[0]
+		c.forced = c.forced[1:]
+		c.mu.Unlock()
+		writeJSON(w, st, map[string]any{"title": http.StatusText(st), "status": st})
+		return
+	}
+	body, err := json.Marshal(map[string]any{"domains": append([]string{}, c.domains...)})
+	c.mu.Unlock()
+	if err == nil {
+		// The fake's own answer must conform too.
+		err = c.spec.Validate("OwnedDomainList", body)
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"title": "Internal Server Error", "status": 500, "detail": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -95,16 +139,70 @@ func (c *Core) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var batch struct {
-		Observations []json.RawMessage `json:"observations"`
+		Observations []observation `json:"observations"`
 	}
 	if err := json.Unmarshal(body, &batch); err != nil {
 		fail(err.Error())
 		return
 	}
+	rejected := []Rejection{}
+	for i, o := range batch.Observations {
+		if code, msg := rejection(o); code != "" {
+			rejected = append(rejected, Rejection{Index: i, Code: code, Message: msg})
+		}
+	}
 	c.mu.Lock()
 	c.batches = append(c.batches, body)
+	c.rejected = append(c.rejected, rejected...)
 	c.mu.Unlock()
-	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": len(batch.Observations), "duplicates": 0, "rejected": []any{}})
+	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": len(batch.Observations) - len(rejected), "duplicates": 0, "rejected": rejected})
+}
+
+// observation holds the fields the prose rules of collector.yaml refer to.
+type observation struct {
+	Target struct {
+		Kind string `json:"kind"`
+		SNI  string `json:"sni"`
+	} `json:"target"`
+	Method      string   `json:"method"`
+	Outcome     string   `json:"outcome"`
+	ServedChain []string `json:"served_chain"`
+	CTEntry     *struct {
+		LogID string `json:"log_id"`
+	} `json:"ct_entry"`
+}
+
+// rejection applies the rules collector.yaml states in its descriptions
+// (the JSON Schema cannot express them) and returns the core's rejection
+// code, or "" when the observation is acceptable.
+func rejection(o observation) (code, msg string) {
+	switch {
+	case o.Target.Kind == "ct_log" && o.Target.SNI != "":
+		return "invalid_target", "a ct_log target has no sni"
+	case o.Target.Kind == "ct_log" && o.Method != "ct":
+		return "invalid_target", "a ct_log target is read by method ct only"
+	case o.Target.Kind == "ct_log" && o.Outcome != "cert_seen":
+		return "invalid_target", "a ct_log target always yields a certificate (outcome cert_seen)"
+	case o.CTEntry != nil && o.Method != "ct":
+		return "invalid_ct_entry", "ct_entry is allowed with method ct only"
+	case o.CTEntry != nil && o.CTEntry.LogID != "" && !is32Bytes(o.CTEntry.LogID):
+		return "invalid_ct_entry", "ct_entry log_id must be the base64 of a 32-byte log ID"
+	case (o.Outcome == "cert_seen") != (len(o.ServedChain) > 0):
+		return "chain_outcome_mismatch", "served_chain must be present exactly when outcome is cert_seen"
+	}
+	return "", ""
+}
+
+func is32Bytes(s string) bool {
+	b, err := base64.StdEncoding.DecodeString(s)
+	return err == nil && len(b) == 32
+}
+
+// Rejected returns the observations the fake core answered in rejected.
+func (c *Core) Rejected() []Rejection {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]Rejection(nil), c.rejected...)
 }
 
 // Batches returns the decompressed bodies of the accepted batches.
