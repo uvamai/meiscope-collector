@@ -1,0 +1,35 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/api/v1/fleet/queries",
+  "query": "order_key=name&page=1&per_page=2"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "queries": [
+    {
+     "id": 13,
+     "name": "meiscope_keystores_posix",
+     "description": "",
+     "query": "SELECT 1;",
+     "team_id": null
+    },
+    {
+     "id": 14,
+     "name": "meiscope_keystores_windows",
+     "description": "",
+     "query": "SELECT 1;",
+     "team_id": null
+    }
+   ],
+   "meta": {
+    "has_next_results": true,
+    "has_previous_results": true
+   }
+  }
+ }
+}

@@ -1,0 +1,35 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/api/v1/fleet/queries",
+  "query": "order_key=name&page=0&per_page=2"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "queries": [
+    {
+     "id": 11,
+     "name": "meiscope_certificates_posix",
+     "description": "",
+     "query": "SELECT 1;",
+     "team_id": null
+    },
+    {
+     "id": 12,
+     "name": "meiscope_certificates_windows",
+     "description": "",
+     "query": "SELECT 1;",
+     "team_id": null
+    }
+   ],
+   "meta": {
+    "has_next_results": true,
+    "has_previous_results": false
+   }
+  }
+ }
+}

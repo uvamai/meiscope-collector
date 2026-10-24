@@ -1,0 +1,29 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/api/v1/fleet/queries/14/report",
+  "query": ""
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "query_id": 14,
+   "report_clipped": false,
+   "results": [
+    {
+     "host_id": 1,
+     "host_name": "web01.example.test",
+     "last_fetched": "2026-10-24T02:00:00Z",
+     "columns": {
+      "path": "C:\\ProgramData\\ExampleApp\\tls\\web01.pfx",
+      "size": "4211",
+      "sha256": "7F9AC1EE844EDCCDE2CAB0DE2D7D5FF28A588081C9E6998556E0039F5CB0E9EE"
+     }
+    }
+   ]
+  }
+ }
+}
