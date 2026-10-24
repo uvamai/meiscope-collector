@@ -1,0 +1,122 @@
+# Task runner for meiscope-collector (https://taskfile.dev, task v3.54.0).
+version: "3"
+
+vars:
+  BINARY: meiscope-collector
+  PKG: github.com/uvamai/meiscope-collector
+  # Semantic version without the leading "v"; falls back when there is no tag.
+  VERSION:
+    sh: 'v="$(git describe --tags --abbrev=0 2>/dev/null)" && echo "${v#v}" || echo 0.0.0-dev'
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo none
+  LDFLAGS: -s -w -X {{.PKG}}/internal/platform.Version={{.VERSION}} -X {{.PKG}}/internal/platform.Commit={{.COMMIT}}
+  # -race needs cgo; it runs in CI (Linux) and is skipped where no C compiler exists.
+  RACE:
+    sh: '[ "$(go env CGO_ENABLED)" = "1" ] && echo -race || echo'
+  GO_WANT: go1.27.3
+
+tasks:
+  default:
+    cmds:
+      - task --list
+
+  build:
+    desc: Build linux/amd64, linux/arm64 and windows/amd64 into bin/<os>_<arch>/, plus a host binary in bin/
+    deps:
+      - { task: build:target, vars: { GOOS: linux, GOARCH: amd64 } }
+      - { task: build:target, vars: { GOOS: linux, GOARCH: arm64 } }
+      - { task: build:target, vars: { GOOS: windows, GOARCH: amd64 } }
+      - build:host
+
+  build:target:
+    internal: true
+    vars:
+      EXT: '{{if eq .GOOS "windows"}}.exe{{end}}'
+    env:
+      GOOS: "{{.GOOS}}"
+      GOARCH: "{{.GOARCH}}"
+      CGO_ENABLED: "0"
+    cmds:
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o bin/{{.GOOS}}_{{.GOARCH}}/{{.BINARY}}{{.EXT}} ./cmd/{{.BINARY}}
+
+  build:host:
+    desc: Build for the current machine into bin/meiscope-collector[.exe]
+    env:
+      CGO_ENABLED: "0"
+    cmds:
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o bin/{{.BINARY}}{{exeExt}} ./cmd/{{.BINARY}}
+
+  test:
+    desc: Unit tests (with -race where cgo is available)
+    cmds:
+      - go test {{.RACE}} ./...
+
+  test:zoo:
+    desc: Probe plugin tests against the TLS zoo (placeholder until WP0.3)
+    cmds:
+      - echo "test:zoo is a placeholder; probe plugins and the TLS zoo arrive in WP0.3"
+
+  test:policy:
+    desc: ScanPolicy property tests (placeholder until WP0.3)
+    cmds:
+      - echo "test:policy is a placeholder; ScanPolicy arrives in WP0.3"
+
+  lint:
+    desc: go vet, golangci-lint and gofumpt
+    cmds:
+      - go vet ./...
+      - golangci-lint run ./...
+      - cmd: |
+          out="$(gofumpt -l .)"
+          if [ -n "$out" ]; then echo "gofumpt would reformat:"; echo "$out"; exit 1; fi
+
+  package:
+    desc: Build deb and rpm packages for linux/amd64 and linux/arm64 into dist/ (nFPM)
+    deps:
+      - { task: build:target, vars: { GOOS: linux, GOARCH: amd64 } }
+      - { task: build:target, vars: { GOOS: linux, GOARCH: arm64 } }
+    cmds:
+      - for: [deb, rpm]
+        task: package:one
+        vars: { PACKAGER: "{{.ITEM}}", GOARCH: amd64 }
+      - for: [deb, rpm]
+        task: package:one
+        vars: { PACKAGER: "{{.ITEM}}", GOARCH: arm64 }
+
+  package:one:
+    internal: true
+    env:
+      GOARCH: "{{.GOARCH}}"
+      VERSION: "{{.VERSION}}"
+    cmds:
+      - mkdir -p dist/.stage
+      - cp bin/linux_{{.GOARCH}}/{{.BINARY}} dist/.stage/{{.BINARY}}
+      - nfpm package --config packaging/nfpm.yaml --packager {{.PACKAGER}} --target dist/
+
+  clean:
+    desc: Remove build and package output
+    cmds:
+      - rm -rf bin dist
+
+  doctor:
+    desc: Check the toolchain this repository needs, at the versions pinned in meiscope third_party/DEPENDENCIES.md §5
+    silent: true
+    cmds:
+      - cmd: |
+          fail=0
+          check() {
+            name="$1"; want="$2"; got="$3"
+            case "$got" in
+              *"$want"*) echo "ok    $name ($want)" ;;
+              *) echo "FAIL  $name: want $want, got: $got"; fail=1 ;;
+            esac
+          }
+          check go            "{{.GO_WANT}}" "$(go env GOVERSION 2>&1 || true)"
+          check task          "3.54.0"   "$(task --version 2>&1 || true)"
+          check golangci-lint "2.15.0"   "$(golangci-lint version 2>&1 || true)"
+          check gofumpt       "v0.12.0"  "$(gofumpt --version 2>&1 || true)"
+          check nfpm          "2.48.0"   "$(nfpm --version 2>&1 || true)"
+          check cosign        "v3.1.4"   "$(cosign version 2>&1 || true)"
+          check syft          "1.55.0"   "$(syft version 2>&1 || true)"
+          if [ "$fail" -ne 0 ]; then echo "doctor: some tools are missing or at the wrong version"; exit 1; fi
+          echo "doctor: all green"

@@ -1,0 +1,3 @@
+# LF everywhere: the systemd unit and packaging files are consumed on Linux.
+* text=auto eol=lf
+*.exe binary

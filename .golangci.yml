@@ -1,0 +1,35 @@
+# golangci-lint v2 configuration (engineering-standards.md section 2).
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - depguard
+    - exhaustive
+    - gocritic
+    - gosec
+    - revive
+    - sqlclosecheck
+  settings:
+    depguard:
+      rules:
+        public-repo:
+          # The public collector imports no module from the private core repository
+          # (project-structure.md section 4). The trailing slash keeps
+          # github.com/uvamai/meiscope-collector allowed.
+          deny:
+            - pkg: github.com/uvamai/meiscope/
+              desc: the public collector must not import the private core repository
+    exhaustive:
+      default-signifies-exhaustive: true
+  exclusions:
+    presets:
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofumpt

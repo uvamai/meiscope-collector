@@ -1,0 +1,44 @@
+openapi: 3.1.0
+info:
+  title: Meiscope collector API
+  version: 0.1.0
+  description: |
+    Collector surface of the Meiscope core (ADR-0005: REST over mTLS,
+    additive-only within /v1). The public collector repository vendors a copy
+    of this file. WP0.1 skeleton: /healthz only.
+    No schema in this file may carry private-key material (NFR-SEC-002).
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: /collector/v1
+paths:
+  /healthz:
+    get:
+      operationId: getCollectorHealthz
+      summary: Liveness and build information of the collector surface
+      tags: [health]
+      responses:
+        "200":
+          description: The collector surface is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+components:
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, version, commit]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+          description: Always "ok" when the process can answer.
+        version:
+          type: string
+          description: Semantic version of the core build, or "dev".
+        commit:
+          type: string
+          description: Source commit of the core build, or "none".
