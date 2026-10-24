@@ -39,11 +39,8 @@ type adapterDeps struct {
 
 func defaultAdapterDeps() adapterDeps {
 	return adapterDeps{
-		clk: clock.System{},
-		creds: func(getenv func(string) string) credential.Source {
-			// Development source; vault-backed sources arrive with WP3.4.
-			return credential.EnvSource{Getenv: getenv}
-		},
+		clk:   clock.System{},
+		creds: defaultCredentialSource,
 	}
 }
 

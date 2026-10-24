@@ -30,11 +30,8 @@ type ctDeps struct {
 
 func defaultCTDeps() ctDeps {
 	return ctDeps{
-		clk: clock.System{},
-		creds: func(getenv func(string) string) credential.Source {
-			// Development fallback only; vault-backed sources arrive with WP1.1.
-			return credential.EnvSource{Getenv: getenv}
-		},
+		clk:   clock.System{},
+		creds: defaultCredentialSource,
 	}
 }
 

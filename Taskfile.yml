@@ -39,6 +39,13 @@ tasks:
     cmds:
       - go build -trimpath -ldflags "{{.LDFLAGS}}" -o bin/{{.GOOS}}_{{.GOARCH}}/{{.BINARY}}{{.EXT}} ./cmd/{{.BINARY}}
 
+  build:dev:
+    desc: Development build with the devcredentials tag (environment-variable credentials); never ship it
+    env:
+      CGO_ENABLED: "0"
+    cmds:
+      - go build -trimpath -tags devcredentials -ldflags "{{.LDFLAGS}}" -o bin/dev/{{.BINARY}}{{exeExt}} ./cmd/{{.BINARY}}
+
   build:host:
     desc: Build for the current machine into bin/meiscope-collector[.exe]
     env:
@@ -47,9 +54,16 @@ tasks:
       - go build -trimpath -ldflags "{{.LDFLAGS}}" -o bin/{{.BINARY}}{{exeExt}} ./cmd/{{.BINARY}}
 
   test:
-    desc: Unit tests (with -race where cgo is available)
+    desc: Unit tests with coverage (with -race where cgo is available); built with the devcredentials tag so tests can use the development credential source
     cmds:
-      - go test {{.RACE}} ./...
+      - go test -tags devcredentials {{.RACE}} -cover ./...
+
+  test:integration:
+    desc: Docker integration tests (osquery 5.12.1, Squid proxy, Fleet); sets MEISCOPE_DOCKER_TESTS=1
+    env:
+      MEISCOPE_DOCKER_TESTS: "1"
+    cmds:
+      - go test -tags devcredentials -count=1 -v -run "Integration|TestSquidProxy" ./...
 
   test:zoo:
     desc: Probe plugin tests against the TLS zoo (placeholder until WP0.3)
@@ -66,6 +80,7 @@ tasks:
     cmds:
       - go vet ./...
       - golangci-lint run ./...
+      - golangci-lint run --build-tags devcredentials ./...
       - cmd: |
           out="$(gofumpt -l .)"
           if [ -n "$out" ]; then echo "gofumpt would reformat:"; echo "$out"; exit 1; fi

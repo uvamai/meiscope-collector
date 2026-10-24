@@ -30,6 +30,7 @@ Commands:
   enrol --token TOKEN enrol with the core (WP0.1: placeholder)
   ct-poll [--every 1h] poll Certificate Transparency for the owned domains (docs/ct.md)
   ct-baseline --domain D  coverage of the CT poller against the crt.sh baseline
+  credential init|set|list  manage the age-encrypted credential file (docs/install.md)
   adapter list|run     run read-only adapters such as osquery (docs/adapters.md)
 `
 
@@ -48,6 +49,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
+	if args[0] != "version" && args[0] != "help" && args[0] != "-h" && args[0] != "--help" {
+		if err := devCredentialGuard(); err != nil {
+			fmt.Fprintf(stderr, "meiscope-collector: %v\n", err)
+			return 1
+		}
+	}
 	var err error
 	switch args[0] {
 	case "version":
@@ -60,6 +67,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		err = ctPollCmd(ctx, args[1:], stdout, stderr, getenv, defaultCTDeps())
 	case "ct-baseline":
 		err = ctBaselineCmd(ctx, args[1:], stdout, stderr, getenv, defaultCTDeps())
+	case "credential":
+		err = credentialCmd(args[1:], os.Stdin, stdout, stderr, getenv)
 	case "adapter":
 		err = adapterCmd(ctx, args[1:], stdout, stderr, getenv, defaultAdapterDeps())
 	case "help", "-h", "--help":
