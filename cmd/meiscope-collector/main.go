@@ -30,6 +30,7 @@ Commands:
   enrol --token TOKEN enrol with the core (WP0.1: placeholder)
   ct-poll [--every 1h] poll Certificate Transparency for the owned domains (docs/ct.md)
   ct-baseline --domain D  coverage of the CT poller against the crt.sh baseline
+  receiver run         run the optional log-push receiver (disabled by default; docs/install.md)
   credential init|set|list  manage the age-encrypted credential file (docs/install.md)
   adapter list|run     run read-only adapters such as osquery (docs/adapters.md)
 `
@@ -67,6 +68,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		err = ctPollCmd(ctx, args[1:], stdout, stderr, getenv, defaultCTDeps())
 	case "ct-baseline":
 		err = ctBaselineCmd(ctx, args[1:], stdout, stderr, getenv, defaultCTDeps())
+	case "receiver":
+		err = receiverCmd(ctx, args[1:], stderr, getenv, defaultAdapterDeps())
 	case "credential":
 		err = credentialCmd(args[1:], os.Stdin, stdout, stderr, getenv)
 	case "adapter":
