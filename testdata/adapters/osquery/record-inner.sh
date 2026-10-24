@@ -24,4 +24,6 @@ for q in meiscope_certificates_posix meiscope_keystores_posix meiscope_keystore_
 done
 timeout 5 osqueryd --config_path=/tmp/osquery.conf --logger_plugin=filesystem --logger_path=/out/log \
   --database_path=/tmp/db --pidfile=/tmp/pid --disable_watchdog --host_identifier=hostname >/dev/null 2>&1 || true
+# osqueryd leaves symlinks (osqueryd.INFO etc.); docker cp cannot copy them to Windows.
+find /out -type l -delete
 ls -la /out/log
