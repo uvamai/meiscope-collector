@@ -164,6 +164,10 @@ func TestFleetErrors(t *testing.T) {
 	ctx := context.Background()
 	var reportStatus []int
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/fleet/reports" { // an older Fleet: no reports API
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		if r.URL.Path == "/api/v1/fleet/queries" {
 			_, _ = io.WriteString(w, `{"queries":[{"id":1,"name":"meiscope_certificates_posix"}]}`)
 			return
@@ -537,4 +541,35 @@ func unixTimesOf(t *testing.T, path string) map[int64]bool {
 		t.Fatal("no unixTime in the log")
 	}
 	return out
+}
+
+// TestFleetReplayReportsAPI: Fleet 4.93 and later serve the same data under
+// /reports; the adapter prefers it and produces the same observations as
+// through the older /queries endpoints.
+func TestFleetReplayReportsAPI(t *testing.T) {
+	oldTr, err := fixture.Load(fixture.Dir("osquery", "fleet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newTr, err := fixture.Load(fixture.Dir("osquery", "fleet-reports"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	envOld, _ := newEnv(t, oldTr)
+	envNew, _ := newEnv(t, newTr)
+	a := syncOK(t, newAdapter(envOld), fleetConfig(), "")
+	b := syncOK(t, newAdapter(envNew), fleetConfig(), "")
+	if len(a.Observations) == 0 || !reflect.DeepEqual(a, b) {
+		t.Fatalf("the two Fleet API families gave different results: %d vs %d observations", len(a.Observations), len(b.Observations))
+	}
+	for _, r := range newTr.Requests() {
+		if strings.Contains(r.URL.Path, "/fleet/queries") {
+			t.Errorf("the deprecated endpoint was used: %s", r.URL.Path)
+		}
+	}
+	for _, r := range oldTr.Requests()[1:] {
+		if strings.Contains(r.URL.Path, "/fleet/reports") {
+			t.Errorf("the reports endpoint was used on an older Fleet after the probe: %s", r.URL.Path)
+		}
+	}
 }

@@ -21,6 +21,10 @@ import (
 // Fleet REST endpoints used (Fleet 4.x, /api/v1/fleet): the saved-query
 // list and each saved query's report (the latest result rows per host).
 const (
+	// Fleet 4.93 deprecates the saved-query endpoints in favour of /reports
+	// (same shapes); the adapter prefers /reports and falls back to /queries
+	// on a Fleet without it.
+	fleetReportsPath = "/api/v1/fleet/reports"
 	fleetQueriesPath = "/api/v1/fleet/queries"
 	maxFleetBody     = 256 << 20
 )
@@ -70,6 +74,32 @@ type fleetClient struct {
 	token credential.Secret
 	lim   *adapter.Limiter
 	a     *Adapter
+	// family is the endpoint family in use, set by detectFamily.
+	family string
+}
+
+// statusError is a non-retryable HTTP answer of Fleet.
+type statusError struct {
+	path   string
+	status int
+}
+
+func (e *statusError) Error() string { return fmt.Sprintf("fleet: GET %s: HTTP %d", e.path, e.status) }
+
+// detectFamily picks the reports endpoints when Fleet has them.
+func (fc *fleetClient) detectFamily(ctx context.Context) error {
+	var probe fleetQueryList
+	err := fc.get(ctx, fleetReportsPath, url.Values{"page": {"0"}, "per_page": {"1"}}, &probe)
+	var se *statusError
+	switch {
+	case err == nil:
+		fc.family = fleetReportsPath
+	case errors.As(err, &se) && se.status == http.StatusNotFound:
+		fc.family = fleetQueriesPath
+	default:
+		return err
+	}
+	return nil
 }
 
 func (a *Adapter) syncFleet(ctx context.Context, cfg adapter.Config, since adapter.Cursor) (adapter.Result, error) {
@@ -99,6 +129,9 @@ func (a *Adapter) syncFleet(ctx context.Context, cfg adapter.Config, since adapt
 	}
 	fc := &fleetClient{base: base, hc: hc, token: token, lim: adapter.NewLimiter(a.env.Clock, rate), a: a}
 
+	if err := fc.detectFamily(ctx); err != nil {
+		return adapter.Result{}, err
+	}
 	ids, err := fc.queryIDs(ctx, cfg)
 	if err != nil {
 		return adapter.Result{}, err
@@ -112,7 +145,7 @@ func (a *Adapter) syncFleet(ctx context.Context, cfg adapter.Config, since adapt
 			return adapter.Result{}, fmt.Errorf("fleet: no saved query named %s; apply packs/osquery/fleet-queries.yml", name)
 		}
 		var rep fleetReport
-		if err := fc.get(ctx, fleetQueriesPath+"/"+strconv.FormatInt(id, 10)+"/report", nil, &rep); err != nil {
+		if err := fc.get(ctx, fc.family+"/"+strconv.FormatInt(id, 10)+"/report", nil, &rep); err != nil {
 			return adapter.Result{}, err
 		}
 		if rep.ReportClipped && a.env.Log != nil {
@@ -170,7 +203,7 @@ func (fc *fleetClient) queryIDs(ctx context.Context, cfg adapter.Config) (map[st
 			q.Set("team_id", team)
 		}
 		var l fleetQueryList
-		if err := fc.get(ctx, fleetQueriesPath, q, &l); err != nil {
+		if err := fc.get(ctx, fc.family, q, &l); err != nil {
 			return adapter.Page[item]{}, err
 		}
 		p := adapter.Page[item]{}
@@ -238,7 +271,7 @@ func (fc *fleetClient) get(ctx context.Context, path string, q url.Values, out a
 			if resp.StatusCode == http.StatusNotFound && strings.HasSuffix(path, "/report") {
 				return fmt.Errorf("fleet: GET %s: HTTP 404: %w", path, ErrFleetAPI)
 			}
-			return fmt.Errorf("fleet: GET %s: HTTP %d", path, resp.StatusCode)
+			return &statusError{path: path, status: resp.StatusCode}
 		}
 		if attempt >= fleetRetry.Attempts {
 			return fmt.Errorf("giving up after %d attempts: %w", attempt+1, err)

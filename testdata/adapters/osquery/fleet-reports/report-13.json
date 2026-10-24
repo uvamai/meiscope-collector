@@ -1,0 +1,47 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/api/v1/fleet/reports/13/report",
+  "query": ""
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "query_id": 13,
+   "report_clipped": false,
+   "results": [
+    {
+     "host_id": 3,
+     "host_name": "app01.example.test",
+     "last_fetched": "2026-10-24T02:00:00Z",
+     "columns": {
+      "path": "/opt/app/keystore.p12",
+      "size": "2547",
+      "mtime": "1792878874",
+      "uid": "0",
+      "mode": "0600",
+      "sha256": "36f9a486c8a3df02af324214a6bd3b7d4167832ff7949f620d22ed8f5a6bdd81"
+     }
+    },
+    {
+     "host_id": 3,
+     "host_name": "app01.example.test",
+     "last_fetched": "2026-10-24T02:00:00Z",
+     "columns": {
+      "path": "/etc/app/tls.pem",
+      "size": "1139",
+      "mtime": "1792878874",
+      "uid": "0",
+      "mode": "0644",
+      "sha256": "2a3a6765e4c32ce64df168eb077244a0f56d7130d5ff5eccd3575a5855986968"
+     }
+    }
+   ],
+   "report_id": 13,
+   "count": 2
+  }
+ }
+}

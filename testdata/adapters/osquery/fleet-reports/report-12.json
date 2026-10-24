@@ -1,0 +1,129 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/api/v1/fleet/reports/12/report",
+  "query": ""
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "query_id": 12,
+   "report_clipped": false,
+   "results": [
+    {
+     "host_id": 1,
+     "host_name": "web01.example.test",
+     "last_fetched": "2026-10-24T02:00:00Z",
+     "columns": {
+      "common_name": "web01.example.test",
+      "subject": "CN=web01.example.test, O=Example Test",
+      "issuer": "CN=Example Test Issuing CA, O=Example Test",
+      "ca": "0",
+      "self_signed": "0",
+      "not_valid_before": "1777593600",
+      "not_valid_after": "1809129600",
+      "signing_algorithm": "sha256WithRSAEncryption",
+      "key_algorithm": "rsaEncryption",
+      "key_strength": "2048",
+      "subject_key_id": "d3fced71891510802afd468ca884b4683abcd254",
+      "authority_key_id": "9cf32721ebab5d715f51669cbe62b023851870b8",
+      "sha1": "4EFB3F52FBC38C377845E68D04FA4E302CEC52E5",
+      "path": "",
+      "serial": "968360E6E8C458AC",
+      "sid": "",
+      "store_location": "LocalMachine",
+      "store": "My",
+      "username": "",
+      "store_id": ""
+     }
+    },
+    {
+     "host_id": 1,
+     "host_name": "web01.example.test",
+     "last_fetched": "2026-10-24T02:00:00Z",
+     "columns": {
+      "common_name": "svc-backup.example.test",
+      "subject": "CN=svc-backup.example.test, O=Example Test",
+      "issuer": "CN=Example Test Issuing CA, O=Example Test",
+      "ca": "0",
+      "self_signed": "0",
+      "not_valid_before": "1777593600",
+      "not_valid_after": "1809129600",
+      "signing_algorithm": "sha256WithRSAEncryption",
+      "key_algorithm": "rsaEncryption",
+      "key_strength": "2048",
+      "subject_key_id": "7ef4eccd5120d822af4429ecba3168dac84816db",
+      "authority_key_id": "9cf32721ebab5d715f51669cbe62b023851870b8",
+      "sha1": "7BA1D1558B9AB0DC09F9FBCDC437AFEFC45A9C73",
+      "path": "",
+      "serial": "6CBACB2A8D520CBF",
+      "sid": "S-1-5-21-1000000001-1000000002-1000000003-1105",
+      "store_location": "Users",
+      "store": "My",
+      "username": "svc-backup",
+      "store_id": ""
+     }
+    },
+    {
+     "host_id": 1,
+     "host_name": "web01.example.test",
+     "last_fetched": "2026-10-24T02:00:00Z",
+     "columns": {
+      "common_name": "Example Test Issuing CA",
+      "subject": "CN=Example Test Issuing CA, O=Example Test",
+      "issuer": "CN=Example Test Issuing CA, O=Example Test",
+      "ca": "1",
+      "self_signed": "0",
+      "not_valid_before": "1777593600",
+      "not_valid_after": "1809129600",
+      "signing_algorithm": "sha256WithRSAEncryption",
+      "key_algorithm": "rsaEncryption",
+      "key_strength": "2048",
+      "subject_key_id": "bda0bceffe6bd7c2feb3f7b785ec0f4d266ca535",
+      "authority_key_id": "9cf32721ebab5d715f51669cbe62b023851870b8",
+      "sha1": "5D588108EE3018961B7C9A021A119AC88C1041F5",
+      "path": "",
+      "serial": "303630E521789C95",
+      "sid": "",
+      "store_location": "LocalMachine",
+      "store": "CA",
+      "username": "",
+      "store_id": ""
+     }
+    },
+    {
+     "host_id": 2,
+     "host_name": "dc01.example.test",
+     "last_fetched": "2026-10-23T02:00:00Z",
+     "columns": {
+      "common_name": "dc01.example.test",
+      "subject": "CN=dc01.example.test, O=Example Test",
+      "issuer": "CN=Example Test Issuing CA, O=Example Test",
+      "ca": "0",
+      "self_signed": "0",
+      "not_valid_before": "1777593600",
+      "not_valid_after": "1809129600",
+      "signing_algorithm": "sha256WithRSAEncryption",
+      "key_algorithm": "rsaEncryption",
+      "key_strength": "2048",
+      "subject_key_id": "8d3879ef646ca7fd2a6d46af15050d2374855cac",
+      "authority_key_id": "9cf32721ebab5d715f51669cbe62b023851870b8",
+      "sha1": "C8083072CE1423D05ED2F8CBF83869402E068CF6",
+      "path": "",
+      "serial": "8809A1F14ABEA3DC",
+      "sid": "",
+      "store_location": "LocalMachine",
+      "store": "My",
+      "username": "",
+      "store_id": ""
+     }
+    }
+   ],
+   "report_id": 12,
+   "count": 4
+  }
+ }
+}

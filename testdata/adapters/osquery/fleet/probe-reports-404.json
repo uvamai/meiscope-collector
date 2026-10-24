@@ -1,0 +1,16 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/api/v1/fleet/reports",
+  "query": "page=0&per_page=1"
+ },
+ "response": {
+  "status": 404,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "message": "Resource Not Found"
+  }
+ }
+}
