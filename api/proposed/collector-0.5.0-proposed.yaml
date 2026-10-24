@@ -1,0 +1,505 @@
+openapi: 3.1.0
+info:
+  title: Meiscope collector API
+  version: 0.5.0-proposed
+  description: |
+    Collector surface of the Meiscope core (ADR-0005: REST over mTLS,
+    additive-only within /v1). The public collector repository vendors a copy
+    of this file.
+
+    PROPOSAL (collector WP1.1, NOT adopted by the core): this file is the
+    core's 0.4.0 contract plus additive changes for adapters that read
+    certificate stores and files (osquery). api/collector.yaml stays
+    byte-identical to the core's file; the core adopts this proposal in its
+    own repository. The additions are:
+    target kinds store and file, target fields store and path, and the
+    Observation property adapter (AdapterEvidence with CertificateMetadata,
+    FileDigest, Custody and Finding). Adapter problems are rejected with the existing code invalid_target (no new
+    rejection code, so the response enum does not change).
+    Only public certificate data and file metadata are carried: never private
+    key material, keystore passwords or key-alias secrets (NFR-SEC-002).
+
+    Compatibility: the change is additive within /v1 for readers that ignore
+    unknown fields. The core's 0.4.0 and 0.8.0 ingest REJECT unknown fields
+    (additionalProperties false; DisallowUnknownFields), so the core must
+    adopt this version, and for the new objects defined here must accept and
+    ignore unknown fields, BEFORE a collector sends any of it. The collector
+    keeps all of it behind MEISCOPE_FEATURE_LOCAL_STORE_V1 (off by default).
+    Every request is authenticated by the collector's mTLS client certificate,
+    which identifies its tenant and collector record; no request body names a
+    tenant.
+    No schema in this file may carry private-key material (NFR-SEC-002):
+    observations carry certificates, never keys.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: /collector/v1
+tags:
+  - name: health
+    description: Liveness
+  - name: observations
+    description: Observation submission
+  - name: ct
+    description: Inputs of Certificate Transparency ingestion
+paths:
+  /owned-domains:
+    get:
+      operationId: listCollectorOwnedDomains
+      summary: The tenant's owned domains, for Certificate Transparency polling
+      description: |
+        The domains the CT poller queries issuance for (FR-DISC-020). Each
+        domain covers itself and every name below it.
+      tags: [ct]
+      responses:
+        "200":
+          description: The owned domains, sorted by name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnedDomainList"
+        "401":
+          description: The collector is not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          description: The list could not be read; retry with backoff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /healthz:
+    get:
+      operationId: getCollectorHealthz
+      summary: Liveness and build information of the collector surface
+      tags: [health]
+      responses:
+        "200":
+          description: The collector surface is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /observations:
+    post:
+      operationId: postObservations
+      summary: Submit a batch of observations
+      description: |
+        Appends the observations and schedules their ingest. The body may be
+        sent with `Content-Encoding: gzip` (recommended); at most 10 MiB on
+        the wire and 64 MiB decompressed.
+        Idempotent: an observation with the same target, method and
+        observed_at as one already stored from this collector is counted as a
+        duplicate and changes nothing, so a batch can be retried safely.
+        Observations that fail validation are listed in `rejected`; the rest
+        of the batch is still accepted.
+      tags: [observations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ObservationBatch"
+      responses:
+        "202":
+          description: The batch was stored; accepted observations will be ingested.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObservationBatchResult"
+        "400":
+          description: The body is not a valid observation batch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "401":
+          description: The collector is not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "413":
+          description: The body exceeds the size limits.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "415":
+          description: Unsupported content type or content encoding.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          description: The batch could not be stored; retry with backoff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+components:
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, version, commit]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+          description: Always "ok" when the process can answer.
+        version:
+          type: string
+          description: Semantic version of the core build, or "dev".
+        commit:
+          type: string
+          description: Source commit of the core build, or "none".
+    ObservationBatch:
+      type: object
+      additionalProperties: false
+      required: [observations]
+      properties:
+        observations:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/Observation"
+    Observation:
+      type: object
+      additionalProperties: false
+      description: One attempt to read a certificate from a target, with its outcome (FR-DISC-014).
+      required: [target, method, observed_at, outcome]
+      properties:
+        target:
+          $ref: "#/components/schemas/Target"
+        method:
+          type: string
+          enum: [probe, adapter, ct, import]
+          description: How the observation was made.
+        observed_at:
+          type: string
+          format: date-time
+          description: |
+            When the attempt was made, by the collector's clock. At most five
+            minutes ahead of the core's clock.
+        outcome:
+          type: string
+          enum: [reached, refused, timeout, tls_failed, cert_seen]
+          description: |
+            reached: connected, no certificate offered; refused: connection
+            refused; timeout: no answer; tls_failed: the TLS handshake failed;
+            cert_seen: a certificate was served (served_chain is then required).
+        served_chain:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: |
+            The certificates exactly as the target served them, leaf first,
+            each DER-encoded and base64-encoded. Present exactly when outcome
+            is cert_seen.
+          items:
+            type: string
+            format: byte
+            maxLength: 87384
+        tls:
+          $ref: "#/components/schemas/TLSParams"
+        ct_entry:
+          $ref: "#/components/schemas/CTEntry"
+        adapter:
+          $ref: "#/components/schemas/AdapterEvidence"
+    AdapterEvidence:
+      type: object
+      description: |
+        PROPOSED (0.5.0). What an adapter read from a system the customer
+        already runs, stored as adapter evidence. Required with, and allowed
+        only with, method adapter. Readers ignore unknown properties of this
+        object. When the source reports certificate metadata but not the
+        certificate itself (the osquery certificates table), certificate
+        carries it and outcome cert_seen is allowed without served_chain. A
+        file target carries file and outcome reached. Never carries private
+        keys, keystore passwords or key-alias secrets.
+      required: [source]
+      properties:
+        source:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,31}$"
+          description: The adapter that read the record, for example "osquery".
+        certificate:
+          $ref: "#/components/schemas/CertificateMetadata"
+        file:
+          $ref: "#/components/schemas/FileDigest"
+        custody:
+          $ref: "#/components/schemas/Custody"
+        findings:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/Finding"
+    CertificateMetadata:
+      type: object
+      description: |
+        PROPOSED (0.5.0). Certificate fields as the source reports them. Public
+        data only. Readers ignore unknown properties.
+      required: [sha1]
+      properties:
+        sha1:
+          type: string
+          pattern: "^[0-9a-f]{40}$"
+          description: SHA-1 of the DER certificate, lower-case hex (the fingerprint osquery reports).
+        serial:
+          type: string
+          maxLength: 128
+        subject:
+          type: string
+          maxLength: 4096
+        issuer:
+          type: string
+          maxLength: 4096
+        common_name:
+          type: string
+          maxLength: 1024
+        not_before:
+          type: string
+          format: date-time
+        not_after:
+          type: string
+          format: date-time
+        ca:
+          type: boolean
+        self_signed:
+          type: boolean
+        key_algorithm:
+          type: string
+          maxLength: 64
+        key_strength:
+          type: string
+          maxLength: 64
+          description: Size of the certificate's public key in bits.
+        signing_algorithm:
+          type: string
+          maxLength: 64
+        subject_key_id:
+          type: string
+          maxLength: 128
+        authority_key_id:
+          type: string
+          maxLength: 128
+    FileDigest:
+      type: object
+      description: |
+        PROPOSED (0.5.0). A keystore or certificate file's metadata and digest,
+        never its contents. Readers ignore unknown properties.
+      required: [sha256]
+      properties:
+        sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        mtime:
+          type: string
+          format: date-time
+          description: Last modification time of the file.
+        owner:
+          type: string
+          maxLength: 256
+          description: The file owner as an id or name string as the operating system reports it (a uid, or a Windows SID).
+        permissions:
+          type: string
+          maxLength: 64
+          description: A summary of the file permissions as the operating system reports them, for example the octal mode "0640".
+        store_type:
+          type: string
+          enum: [jks, pkcs12, pem, nss, other]
+          description: Kind of store the file is, from its extension.
+    Custody:
+      type: object
+      description: PROPOSED (0.5.0). Custody flags where the source exposes them, else unknown. Readers ignore unknown properties.
+      required: [key_custody]
+      properties:
+        key_custody:
+          type: string
+          enum: [present, absent, unknown]
+          description: Whether the store holds a key pair for the certificate. Never the key itself.
+    Finding:
+      type: object
+      description: |
+        PROPOSED (0.5.0). Something the adapter could not do and reports
+        instead of skipping silently. Readers ignore unknown properties.
+      required: [code]
+      properties:
+        code:
+          type: string
+          enum: [store_encrypted_not_read]
+          description: |
+            store_encrypted_not_read: the file is a password-protected keystore
+            whose content the collector does not read (it never guesses,
+            defaults or brute-forces passwords). The finding carries the file
+            path (target.path) and size (adapter.file.size) only.
+    CTEntry:
+      type: object
+      additionalProperties: false
+      description: |
+        Where a ct observation's certificate was found, stored as ct_entry
+        evidence. Allowed with method ct only. The certificate itself (the
+        logged certificate or precertificate, leaf first, then the chain the
+        entry carried) is served_chain.
+      required: [source]
+      properties:
+        source:
+          type: string
+          enum: [log, cert_spotter, crt_sh]
+          description: A CT log read directly, or the Cert Spotter or crt.sh search service.
+        log_id:
+          type: string
+          format: byte
+          maxLength: 44
+          description: The log's ID (SHA-256 of its public key, RFC 6962 §3.2), base64.
+        entry_index:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Index of the entry in the log.
+        timestamp:
+          type: string
+          format: date-time
+          description: The entry's timestamp (the SCT timestamp, RFC 6962 §3.2).
+    Target:
+      type: object
+      additionalProperties: false
+      required: [kind, host]
+      allOf:
+        - if:
+            properties:
+              kind:
+                enum: [host_port_sni, ct_log]
+          then:
+            required: [port]
+      properties:
+        kind:
+          type: string
+          enum: [host_port_sni, ct_log, store, file]
+          description: |
+            Locator kind. host_port_sni: a network endpoint. ct_log: a
+            Certificate Transparency log or search service that was read
+            (method ct only, outcome cert_seen, no sni); every certificate
+            read from it is its own target. Other kinds (file, store, cloud
+            resource) are added additively.
+            PROPOSED (0.5.0): store: an OS or application certificate store
+            on host (store required, method adapter only); file: a keystore
+            or certificate file on host (path required, method adapter only).
+            port is required for host_port_sni and ct_log and absent for
+            store and file.
+        host:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: |
+            Host name or IP address that was connected to; for ct_log the host
+            name of the log or service (e.g. its API host).
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        sni:
+          type: string
+          maxLength: 253
+          description: Server name sent in the TLS ClientHello; empty or absent when none was sent.
+        store:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: |
+            PROPOSED (0.5.0). Store locator for kind store, slash-separated:
+            "<platform>/<location>/<store>", for example
+            "windows/LocalMachine/My" or "posix/system".
+        path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: PROPOSED (0.5.0). Absolute file path on host for kind file (or the file a store entry was read from).
+    TLSParams:
+      type: object
+      additionalProperties: false
+      description: Negotiated connection parameters, stored as tls_params evidence.
+      properties:
+        version:
+          type: string
+          description: Negotiated protocol version, e.g. "TLS 1.3".
+        cipher_suite:
+          type: string
+          description: Negotiated cipher suite name.
+        alpn:
+          type: string
+          description: Negotiated ALPN protocol.
+        ocsp_stapled:
+          type: boolean
+          description: Whether an OCSP response was stapled.
+        protocol:
+          type: string
+          description: Application protocol, e.g. "https", "smtp-starttls", "ldaps".
+        plugin:
+          type: string
+          description: Collector plugin that made the attempt.
+    ObservationBatchResult:
+      type: object
+      additionalProperties: false
+      required: [accepted, duplicates, rejected]
+      properties:
+        accepted:
+          type: integer
+          description: Observations stored by this request.
+        duplicates:
+          type: integer
+          description: Observations already stored by an earlier request.
+        rejected:
+          type: array
+          items:
+            $ref: "#/components/schemas/Rejection"
+    Rejection:
+      type: object
+      additionalProperties: false
+      required: [index, code, message]
+      properties:
+        index:
+          type: integer
+          description: Position of the observation in the batch.
+        code:
+          type: string
+          enum:
+            - invalid_target
+            - invalid_method
+            - invalid_outcome
+            - invalid_observed_at
+            - observed_at_in_future
+            - invalid_served_chain
+            - chain_outcome_mismatch
+            - invalid_ct_entry
+        message:
+          type: string
+    OwnedDomainList:
+      type: object
+      additionalProperties: false
+      required: [domains]
+      properties:
+        domains:
+          type: array
+          items:
+            type: string
+            description: A domain name, lower case, without a trailing dot.
+    Problem:
+      type: object
+      description: Error body (RFC 9457 problem details, subset).
+      required: [title, status]
+      properties:
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string

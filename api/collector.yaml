@@ -1,15 +1,11 @@
 openapi: 3.1.0
 info:
   title: Meiscope collector API
-  version: 0.5.0-proposed
+  version: 0.4.0
   description: |
     Collector surface of the Meiscope core (ADR-0005: REST over mTLS,
     additive-only within /v1). The public collector repository vendors a copy
     of this file.
-    PROPOSED (collector WP1.1, not yet adopted by the core): version
-    0.5.0-proposed adds, additively, the target kinds store and file, the
-    target fields store and path, and the Observation property adapter
-    (AdapterEvidence) for observations read by adapters such as osquery.
     Every request is authenticated by the collector's mTLS client certificate,
     which identifies its tenant and collector record; no request body names a
     tenant.
@@ -193,100 +189,6 @@ components:
           $ref: "#/components/schemas/TLSParams"
         ct_entry:
           $ref: "#/components/schemas/CTEntry"
-        adapter:
-          $ref: "#/components/schemas/AdapterEvidence"
-    AdapterEvidence:
-      type: object
-      additionalProperties: false
-      description: |
-        PROPOSED (0.5.0). What an adapter read from a system the customer
-        already runs, stored as adapter evidence. Allowed with method adapter
-        only, and required with it. When the source exposes certificate
-        metadata but not the certificate itself (the osquery certificates
-        table), certificate carries it and outcome cert_seen is allowed
-        without served_chain. A file target carries file and outcome reached.
-      required: [source]
-      properties:
-        source:
-          type: string
-          pattern: "^[a-z][a-z0-9_]{0,31}$"
-          description: The adapter that read the record, e.g. "osquery".
-        certificate:
-          $ref: "#/components/schemas/CertificateMetadata"
-        file:
-          $ref: "#/components/schemas/FileDigest"
-        custody:
-          $ref: "#/components/schemas/Custody"
-    CertificateMetadata:
-      type: object
-      additionalProperties: false
-      description: PROPOSED (0.5.0). Certificate fields as the source reports them; never key material.
-      required: [sha1]
-      properties:
-        sha1:
-          type: string
-          pattern: "^[0-9a-f]{40}$"
-          description: SHA-1 of the DER certificate, lower-case hex (the fingerprint osquery reports).
-        serial:
-          type: string
-          maxLength: 128
-        subject:
-          type: string
-          maxLength: 4096
-        issuer:
-          type: string
-          maxLength: 4096
-        common_name:
-          type: string
-          maxLength: 1024
-        not_before:
-          type: string
-          format: date-time
-        not_after:
-          type: string
-          format: date-time
-        ca:
-          type: boolean
-        self_signed:
-          type: boolean
-        key_algorithm:
-          type: string
-          maxLength: 64
-        key_strength:
-          type: string
-          maxLength: 64
-        signing_algorithm:
-          type: string
-          maxLength: 64
-        subject_key_id:
-          type: string
-          maxLength: 128
-        authority_key_id:
-          type: string
-          maxLength: 128
-    FileDigest:
-      type: object
-      additionalProperties: false
-      description: PROPOSED (0.5.0). A keystore or certificate file's digest and size; never its contents.
-      required: [sha256]
-      properties:
-        sha256:
-          type: string
-          pattern: "^[0-9a-f]{64}$"
-        size:
-          type: integer
-          format: int64
-          minimum: 0
-    Custody:
-      type: object
-      additionalProperties: false
-      description: PROPOSED (0.5.0). Custody flags where the source exposes them, else unknown.
-      required: [private_key]
-      properties:
-        private_key:
-          type: string
-          enum: [present, absent, unknown]
-          description: Whether the store holds the certificate's private key.
     CTEntry:
       type: object
       additionalProperties: false
@@ -318,29 +220,17 @@ components:
     Target:
       type: object
       additionalProperties: false
-      required: [kind, host]
-      allOf:
-        - if:
-            properties:
-              kind:
-                enum: [host_port_sni, ct_log]
-          then:
-            required: [port]
+      required: [kind, host, port]
       properties:
         kind:
           type: string
-          enum: [host_port_sni, ct_log, store, file]
+          enum: [host_port_sni, ct_log]
           description: |
             Locator kind. host_port_sni: a network endpoint. ct_log: a
             Certificate Transparency log or search service that was read
             (method ct only, outcome cert_seen, no sni); every certificate
             read from it is its own target. Other kinds (file, store, cloud
             resource) are added additively.
-            PROPOSED (0.5.0): store: an OS or application certificate store
-            on host (store required, method adapter only); file: a keystore
-            or certificate file on host (path required, method adapter only).
-            port is required for host_port_sni and ct_log and absent for
-            store and file.
         host:
           type: string
           minLength: 1
@@ -356,19 +246,6 @@ components:
           type: string
           maxLength: 253
           description: Server name sent in the TLS ClientHello; empty or absent when none was sent.
-        store:
-          type: string
-          minLength: 1
-          maxLength: 512
-          description: |
-            PROPOSED (0.5.0). Store locator for kind store, slash-separated:
-            "<platform>/<location>/<store>", e.g. "windows/LocalMachine/My",
-            "windows/Users/S-1-5-21-1-2-3-1001/My", "linux/system/ca-certificates".
-        path:
-          type: string
-          minLength: 1
-          maxLength: 4096
-          description: PROPOSED (0.5.0). Absolute file path on host for kind file (or the file a store entry was read from).
     TLSParams:
       type: object
       additionalProperties: false
@@ -426,7 +303,6 @@ components:
             - invalid_served_chain
             - chain_outcome_mismatch
             - invalid_ct_entry
-            - invalid_adapter
         message:
           type: string
     OwnedDomainList:

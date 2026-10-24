@@ -136,7 +136,7 @@ type OwnedDomainList struct {
 	Domains []string `json:"domains"`
 }
 
-// Custody.private_key values (PROPOSED 0.5.0).
+// Custody.key_custody values (PROPOSED 0.5.0).
 const (
 	KeyPresent = "present"
 	KeyAbsent  = "absent"
@@ -150,7 +150,30 @@ type AdapterEvidence struct {
 	Certificate *CertificateMetadata `json:"certificate,omitempty"`
 	File        *FileDigest          `json:"file,omitempty"`
 	Custody     *Custody             `json:"custody,omitempty"`
+	Findings    []Finding            `json:"findings,omitempty"`
 }
+
+// Finding codes (PROPOSED 0.5.0).
+const (
+	// FindingStoreEncryptedNotRead marks a password-protected keystore whose
+	// content the collector does not read. It never guesses passwords.
+	FindingStoreEncryptedNotRead = "store_encrypted_not_read"
+)
+
+// Finding is something an adapter could not do and reports instead of
+// skipping it silently (schema Finding, PROPOSED 0.5.0).
+type Finding struct {
+	Code string `json:"code"`
+}
+
+// Store types of FileDigest.store_type (PROPOSED 0.5.0).
+const (
+	StoreJKS    = "jks"
+	StorePKCS12 = "pkcs12"
+	StorePEM    = "pem"
+	StoreNSS    = "nss"
+	StoreOther  = "other"
+)
 
 // CertificateMetadata holds certificate fields as the source reports them
 // (schema CertificateMetadata, PROPOSED 0.5.0). It never holds key material.
@@ -174,11 +197,15 @@ type CertificateMetadata struct {
 // FileDigest is a file's digest and size, never its contents (schema
 // FileDigest, PROPOSED 0.5.0).
 type FileDigest struct {
-	SHA256 string `json:"sha256"`
-	Size   *int64 `json:"size,omitempty"`
+	SHA256      string     `json:"sha256"`
+	Size        *int64     `json:"size,omitempty"`
+	MTime       *time.Time `json:"mtime,omitempty"`
+	Owner       string     `json:"owner,omitempty"`
+	Permissions string     `json:"permissions,omitempty"`
+	StoreType   string     `json:"store_type,omitempty"`
 }
 
 // Custody holds custody flags (schema Custody, PROPOSED 0.5.0).
 type Custody struct {
-	PrivateKey string `json:"private_key"`
+	KeyCustody string `json:"key_custody"`
 }

@@ -23,7 +23,7 @@ func storeObservation() submit.Observation {
 		Adapter: &submit.AdapterEvidence{
 			Source:      "osquery",
 			Certificate: &submit.CertificateMetadata{SHA1: strings.Repeat("ab", 20), CommonName: "web01.example.test"},
-			Custody:     &submit.Custody{PrivateKey: submit.KeyUnknown},
+			Custody:     &submit.Custody{KeyCustody: submit.KeyUnknown},
 		},
 	}
 }
@@ -40,7 +40,7 @@ func fileObservation() submit.Observation {
 }
 
 func TestProposedAdapterObservations(t *testing.T) {
-	core := newCore(t)
+	core := newProposedCore(t)
 	cl, _ := submit.New(core.URL, core.Client())
 	withPort := storeObservation()
 	withPort.Target.Port = 443
@@ -69,18 +69,18 @@ func TestProposedAdapterObservations(t *testing.T) {
 	for _, r := range res.Rejected {
 		codes = append(codes, strconv.Itoa(r.Index)+":"+r.Code)
 	}
-	want := []string{"2:invalid_target", "3:invalid_target", "4:invalid_target", "5:invalid_adapter", "6:invalid_adapter", "7:invalid_adapter", "8:invalid_adapter"}
+	want := []string{"2:invalid_target", "3:invalid_target", "4:invalid_target", "5:invalid_target", "6:invalid_target", "7:invalid_target", "8:invalid_target"}
 	if res.Accepted != 2 || !reflect.DeepEqual(codes, want) {
 		t.Fatalf("accepted %d, rejected %v, want %v", res.Accepted, codes, want)
 	}
 }
 
 func TestProposedSchema(t *testing.T) {
-	spec, err := submittest.LoadSpec(submittest.SpecPath())
+	spec, err := submittest.LoadSpec(submittest.ProposedSpecPath())
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := `{"observations":[{"target":{"kind":"store","host":"h.example.test","store":"linux/system/ca-certificates"},"method":"adapter","observed_at":"2026-10-24T00:00:00Z","outcome":"cert_seen","adapter":{"source":"osquery","certificate":{"sha1":"` + strings.Repeat("ab", 20) + `"},"custody":{"private_key":"unknown"}}}]}`
+	store := `{"observations":[{"target":{"kind":"store","host":"h.example.test","store":"linux/system/ca-certificates"},"method":"adapter","observed_at":"2026-10-24T00:00:00Z","outcome":"cert_seen","adapter":{"source":"osquery","certificate":{"sha1":"` + strings.Repeat("ab", 20) + `"},"custody":{"key_custody":"unknown"}}}]}`
 	if err := spec.Validate("ObservationBatch", []byte(store)); err != nil {
 		t.Fatalf("valid store batch refused: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestProposedSchema(t *testing.T) {
 		"bad custody":       strings.Replace(store, `"unknown"`, `"maybe"`, 1),
 		"bad source":        strings.Replace(store, `"osquery"`, `"OS Query"`, 1),
 		"unknown kind":      strings.Replace(store, `"kind":"store"`, `"kind":"cloud"`, 1),
-		"key material":      strings.Replace(store, `"custody"`, `"private_key":"x","custody"`, 1),
+		"key material":      strings.Replace(store, `"adapter"`, `"private_key":"x","adapter"`, 1),
 		"empty store":       strings.Replace(store, `"linux/system/ca-certificates"`, `""`, 1),
 		"ct_log needs port": `{"observations":[{"target":{"kind":"ct_log","host":"ct.example"},"method":"ct","observed_at":"2026-10-24T00:00:00Z","outcome":"cert_seen","served_chain":["MAA="],"ct_entry":{"source":"log"}}]}`,
 	}
@@ -99,4 +99,14 @@ func TestProposedSchema(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
+}
+
+func newProposedCore(t *testing.T) *submittest.Core {
+	t.Helper()
+	c, err := submittest.NewProposedCore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.Close)
+	return c
 }
