@@ -60,10 +60,12 @@ curl http://127.0.0.1:8090/healthz
 
 ## API contract
 
-`api/collector.yaml` is a vendored copy of the collector surface
-(`/collector/v1`, OpenAPI 3.1) of the Meiscope core (contract 0.2.0), plus
-the additive CT extensions marked "WP0.4 (proposed)". Changes inside `/v1`
-are additive only.
+`api/collector.yaml` is a byte-for-byte vendored copy of the collector
+surface (`/collector/v1`, OpenAPI 3.1) of the Meiscope core, which owns it
+(contract 0.4.0). The collector does not extend it; the tests submit to a
+fake core that validates every request against this file. Changes inside
+`/v1` are additive only. The CT poller's use of it (target kind `ct_log`,
+`ct_entry`, `GET /owned-domains`) is described in [docs/ct.md](docs/ct.md).
 
 ## Install
 

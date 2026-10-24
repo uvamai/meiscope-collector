@@ -51,35 +51,45 @@ operations mailbox) to add them.
 New certificates only: the poller dedupes by the SHA-256 fingerprint of the
 (pre)certificate across sources and across polls. Each becomes one
 observation (`POST /collector/v1/observations`, gzip JSON, at most 1,000 per
-batch):
+batch) in the shape of the core's collector API 0.4.0 (`api/collector.yaml`):
 
 - `method: ct`, `outcome: cert_seen`;
-- `target`: kind `ct_entry`, `host` = the owned domain that matched,
-  `fingerprint` = the SHA-256 of the leaf;
-- `served_chain`: the certificate or precertificate as logged, then its
-  issuers when the source provides them;
-- `ct`: the evidence: the source, the DNS names, the entry type and, for log
-  entries, the log URL, entry index, entry timestamp, the RFC 6962
-  `leaf_input` (and `extra_data` for RFC 6962 logs); the Cert Spotter or
-  crt.sh record id otherwise; and the SCTs embedded in the certificate.
+- `target`: kind `ct_log`, `host` and `port` = the API host and port of the
+  log or service that was read (for example `api.certspotter.com`, `443`),
+  no `sni`. The core makes each certificate read from a log its own target;
+- `served_chain`: the certificate or precertificate as logged, first, then
+  the chain the entry carried (log entries); a search service returns the
+  certificate alone;
+- `ct_entry`: where it was found:
+
+  | Poller source | `source` | `log_id` | `entry_index` | `timestamp` |
+  |---|---|---|---|---|
+  | RFC 6962 log, static-ct log | `log` | the log's ID, when its key is known | the entry's index | the entry's (SCT) timestamp |
+  | Cert Spotter | `cert_spotter` | – | – | – |
+  | crt.sh | `crt_sh` | – | – | – |
+
+Nothing else is sent: the matched domain, DNS names, entry type and the
+search service's record id stay in the collector (logs and the coverage
+report); the core reads names and embedded SCTs from the certificate itself.
 
 A precertificate and its final certificate have different fingerprints and
 are reported separately; the core links them by issuer and serial.
 
-The `ct_entry` kind, `Target.fingerprint` and `Observation.ct` are additive
-extensions of the collector API proposed by this work package (see
-`api/collector.yaml`); a core that does not support them yet refuses the
-batch, and the poller then keeps its progress and retries next poll.
-
 ## Configuration
 
-Until the core delivers the tenant's owned-domain list to the collector, the
-poller is configured with environment variables (in
-`/etc/meiscope-collector/collector.env` for the packaged service):
+The poller is configured with environment variables (in
+`/etc/meiscope-collector/collector.env` for the packaged service). The owned
+domains come from the core (`GET /collector/v1/owned-domains`), read again
+before every poll, whenever `MEISCOPE_CORE_URL` is set; `MEISCOPE_CT_DOMAINS`
+is the domain list for a dry run without a core (development, offline use)
+and is ignored, with a warning, when a core is configured. If the core's list
+cannot be read, the poll fails, nothing is submitted and no progress is
+saved; `--every` retries next cycle. A domain from the core that cannot be
+queried (for example a single label) is skipped with a warning.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MEISCOPE_CT_DOMAINS` | (required) | Owned domains, comma-separated, e.g. `example.com,example.net`. Each includes its subdomains. |
+| `MEISCOPE_CT_DOMAINS` | (none) | Without a core only (required then): owned domains, comma-separated, e.g. `example.com,example.net`. Each includes its subdomains. |
 | `MEISCOPE_CT_LOGS` | (none) | Logs to tail, comma-separated: `rfc6962=<log URL>` or `static=<monitoring prefix>`, e.g. `static=https://mon.willow.ct.letsencrypt.org/2026h2/`. URLs are in the [Google log list](https://www.gstatic.com/ct/log_list/v3/log_list.json) (`url`, or `monitoring_url` for `tiled_logs`). |
 | `MEISCOPE_CT_CERTSPOTTER` | `true` | Query the Cert Spotter API. |
 | `MEISCOPE_CT_CRTSH_FALLBACK` | `true` | Use crt.sh when Cert Spotter fails for a domain. |
@@ -87,7 +97,7 @@ poller is configured with environment variables (in
 | `MEISCOPE_CT_STATE_FILE` | (none) | Where progress is kept (Cert Spotter cursors, log positions, fingerprints already sent), e.g. `/var/lib/meiscope-collector/ct-state.json`. Without it, every start begins afresh. Holds public CT data only. |
 | `MEISCOPE_CT_CONTACT` | (none) | Contact details added to the User-Agent. |
 | `MEISCOPE_CT_CERTSPOTTER_URL`, `MEISCOPE_CT_CRTSH_URL` | the public services | For tests and mirrors only. |
-| `MEISCOPE_CORE_URL` | (none) | Without it, `ct-poll` prints the observation batch instead of submitting it and saves no progress (a dry run). |
+| `MEISCOPE_CORE_URL` | (none) | The core: the owned domains are read from it and the observations submitted to it. Without it, `ct-poll` prints the observation batch instead of submitting it and saves no progress (a dry run). |
 
 ### The Cert Spotter API key
 
@@ -107,7 +117,9 @@ not use this in production.
 ## Commands
 
 ```sh
-# One poll (submit when MEISCOPE_CORE_URL is set, else print the batch)
+# One poll: with MEISCOPE_CORE_URL, domains from the core and the batch
+# submitted; without it (dry run), domains from MEISCOPE_CT_DOMAINS and the
+# batch printed
 MEISCOPE_CT_DOMAINS=example.com meiscope-collector ct-poll
 
 # Poll every hour until stopped (the cadence in integration-architecture.md)
