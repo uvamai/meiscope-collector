@@ -68,32 +68,38 @@ type Sink interface {
 	Enqueue(ctx context.Context, obs []submit.Observation) error
 }
 
+// RunResult summarises one RunOnce.
+type RunResult struct {
+	Observations int
+	Stats        map[string]int
+}
+
 // RunOnce syncs one adapter instance from its stored cursor, hands the
 // observations to the sink and only then advances the cursor, so a failure
 // anywhere before that repeats the same delta next time instead of losing it.
-func RunOnce(ctx context.Context, env Env, cfg Config, cursors *CursorStore, sink Sink) (int, error) {
+func RunOnce(ctx context.Context, env Env, cfg Config, cursors *CursorStore, sink Sink) (RunResult, error) {
 	f, ok := Lookup(cfg.Adapter)
 	if !ok {
-		return 0, fmt.Errorf("unknown adapter %q (known: %v)", cfg.Adapter, Names())
+		return RunResult{}, fmt.Errorf("unknown adapter %q (known: %v)", cfg.Adapter, Names())
 	}
 	if err := cfg.Check(); err != nil {
-		return 0, err
+		return RunResult{}, err
 	}
 	a := f(env)
 	if err := a.Validate(cfg); err != nil {
-		return 0, fmt.Errorf("adapter %s: %w", cfg.Name, err)
+		return RunResult{}, fmt.Errorf("adapter %s: %w", cfg.Name, err)
 	}
 	res, err := a.Sync(ctx, cfg, cursors.Get(cfg.Name))
 	if err != nil {
-		return 0, fmt.Errorf("adapter %s: %w", cfg.Name, err)
+		return RunResult{}, fmt.Errorf("adapter %s: %w", cfg.Name, err)
 	}
 	if len(res.Observations) > 0 {
 		if err := sink.Enqueue(ctx, res.Observations); err != nil {
-			return 0, fmt.Errorf("adapter %s: %w", cfg.Name, err)
+			return RunResult{}, fmt.Errorf("adapter %s: %w", cfg.Name, err)
 		}
 	}
 	if err := cursors.Set(cfg.Name, res.Cursor); err != nil {
-		return len(res.Observations), fmt.Errorf("adapter %s: observations buffered but cursor not saved (they will be read again): %w", cfg.Name, err)
+		return RunResult{Observations: len(res.Observations), Stats: res.Stats}, fmt.Errorf("adapter %s: observations buffered but cursor not saved (they will be read again): %w", cfg.Name, err)
 	}
-	return len(res.Observations), nil
+	return RunResult{Observations: len(res.Observations), Stats: res.Stats}, nil
 }

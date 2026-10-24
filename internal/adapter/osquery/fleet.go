@@ -103,7 +103,7 @@ func (a *Adapter) syncFleet(ctx context.Context, cfg adapter.Config, since adapt
 	if err != nil {
 		return adapter.Result{}, err
 	}
-	st := stats{}
+	st := newStats()
 	var obs []submit.Observation
 	for _, name := range fleetQueries(cfg) {
 		q, _ := queryOf(name)
@@ -145,10 +145,11 @@ func (a *Adapter) syncFleet(ctx context.Context, cfg adapter.Config, since adapt
 			}
 		}
 	}
-	a.logStats(ModeFleet, st)
-	sortObservations(obs)
 	c, err := adapter.EncodeCursor(cur)
-	return adapter.Result{Observations: obs, Cursor: c}, err
+	if err != nil {
+		return adapter.Result{}, err
+	}
+	return a.result(ModeFleet, cfg, obs, st, c, since)
 }
 
 // queryIDs pages through the saved queries and returns the IDs by name.

@@ -50,6 +50,7 @@ func writeConfig(t *testing.T) string {
 	files := []string{
 		repoFile("testdata", "adapters", "osquery", "direct", "direct-meiscope_certificates_posix.json"),
 		repoFile("testdata", "adapters", "osquery", "direct", "direct-meiscope_keystores_posix.json"),
+		repoFile("testdata", "adapters", "osquery", "direct", "direct-meiscope_keystore_counts_posix.json"),
 	}
 	cfg := []adapter.Config{{
 		Name: "osq", Adapter: "osquery",
@@ -84,11 +85,11 @@ func TestAdapterList(t *testing.T) {
 
 func TestAdapterRunDryRunWritesValidBatch(t *testing.T) {
 	var out, errb bytes.Buffer
-	err := adapterCmd(context.Background(), []string{"run", "--config", writeConfig(t)}, &out, &errb, envOf(map[string]string{"MEISCOPE_LOG_FORMAT": "text"}), adapterTestDeps(nil))
+	err := adapterCmd(context.Background(), []string{"run", "--config", writeConfig(t)}, &out, &errb, envOf(map[string]string{"MEISCOPE_LOG_FORMAT": "text", "MEISCOPE_FEATURE_LOCAL_STORE_V1": "true"}), adapterTestDeps(nil))
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errb.String())
 	}
-	spec, err := submittest.LoadSpec(submittest.SpecPath())
+	spec, err := submittest.LoadSpec(submittest.ProposedSpecPath())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +108,7 @@ func TestLoadAdapterConfigs(t *testing.T) {
 		_ = os.WriteFile(p, []byte(s), 0o600)
 		return p
 	}
-	good := `[{"name":"a","adapter":"osquery"},{"name":"b","adapter":"osquery"}]`
+	good := `[{"name":"a","adapter":"osquery","settings":{"mode":"logsink","dir":"/var/log/osquery"}},{"name":"b","adapter":"osquery","settings":{"mode":"logsink","dir":"/var/log/osquery"}}]`
 	if got, err := loadAdapterConfigs(write(good), []string{"b"}); err != nil || len(got) != 1 || got[0].Name != "b" {
 		t.Fatalf("%v %v", got, err)
 	}
@@ -131,7 +132,7 @@ func TestLoadAdapterConfigs(t *testing.T) {
 // core is down during the first run (observations stay in the buffer), up
 // during the second (they arrive, once).
 func TestAdapterRunBuffersWhileCoreIsDownAndReplays(t *testing.T) {
-	core, err := submittest.NewCore()
+	core, err := submittest.NewProposedCore()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,11 +144,12 @@ func TestAdapterRunBuffersWhileCoreIsDownAndReplays(t *testing.T) {
 	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 	state := t.TempDir()
 	env := map[string]string{
-		"MEISCOPE_CORE_URL":           core.URL,
-		"MEISCOPE_CA_BUNDLE":          ca,
-		"MEISCOPE_BUFFER_DIR":         filepath.Join(state, "buffer"),
-		"MEISCOPE_ADAPTER_STATE_FILE": filepath.Join(state, "cursors.json"),
-		"MEISCOPE_LOG_FORMAT":         "text",
+		"MEISCOPE_CORE_URL":               core.URL,
+		"MEISCOPE_CA_BUNDLE":              ca,
+		"MEISCOPE_BUFFER_DIR":             filepath.Join(state, "buffer"),
+		"MEISCOPE_ADAPTER_STATE_FILE":     filepath.Join(state, "cursors.json"),
+		"MEISCOPE_LOG_FORMAT":             "text",
+		"MEISCOPE_FEATURE_LOCAL_STORE_V1": "true",
 	}
 	deps := adapterTestDeps(staticCreds{"buffer_key": key})
 	cfg := writeConfig(t)
@@ -164,7 +166,7 @@ func TestAdapterRunBuffersWhileCoreIsDownAndReplays(t *testing.T) {
 	if len(core.Batches()) != 0 {
 		t.Fatal("batches reached a failing core")
 	}
-	if !strings.Contains(errb.String(), "buffer_depth=124") {
+	if !strings.Contains(errb.String(), "buffer_depth=125") {
 		t.Fatalf("heartbeat does not report the buffer depth:\n%s", errb.String())
 	}
 	if _, err := os.Stat(filepath.Join(state, "cursors.json")); err != nil {
@@ -181,8 +183,8 @@ func TestAdapterRunBuffersWhileCoreIsDownAndReplays(t *testing.T) {
 	for _, raw := range core.Batches() {
 		total += strings.Count(string(raw), `"method":"adapter"`)
 	}
-	if total != 124 || len(core.Rejected()) != 0 {
-		t.Fatalf("core holds %d observations (want 124 exactly once), rejected %v", total, core.Rejected())
+	if total != 125 || len(core.Rejected()) != 0 {
+		t.Fatalf("core holds %d observations (want 125 exactly once), rejected %v", total, core.Rejected())
 	}
 	if !strings.Contains(errb.String(), "buffer_depth=0") {
 		t.Fatalf("heartbeat after recovery:\n%s", errb.String())
@@ -209,7 +211,7 @@ func drain(core *submittest.Core) {
 }
 
 func TestBufferKeyProblemsNameNoValue(t *testing.T) {
-	core, _ := submittest.NewCore()
+	core, _ := submittest.NewProposedCore()
 	defer core.Close()
 	env := map[string]string{"MEISCOPE_CORE_URL": core.URL, "MEISCOPE_BUFFER_DIR": t.TempDir(), "MEISCOPE_LOG_FORMAT": "text"}
 	cfg := writeConfig(t)

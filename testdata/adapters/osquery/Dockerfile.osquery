@@ -1,0 +1,6 @@
+FROM ubuntu:24.04
+# osquery 5.12.1 from the official package; used only to record test fixtures
+# and by the integration tests.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl openssl && \
+    curl -fsSLo /tmp/o.deb https://pkg.osquery.io/deb/osquery_5.12.1-1.linux_amd64.deb && \
+    apt-get install -y /tmp/o.deb && rm /tmp/o.deb && rm -rf /var/lib/apt/lists/*

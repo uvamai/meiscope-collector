@@ -45,7 +45,7 @@ func (a *Adapter) syncDirect(_ context.Context, cfg adapter.Config, since adapte
 	next := directCursor{Files: map[string]string{}}
 	host := cfg.Setting("host", "")
 	now := a.env.Clock.Now()
-	st := stats{}
+	st := newStats()
 	var obs []submit.Observation
 	for _, f := range splitList(cfg.Setting("files", "")) {
 		q, err := directQuery(f)
@@ -72,10 +72,11 @@ func (a *Adapter) syncDirect(_ context.Context, cfg adapter.Config, since adapte
 			}
 		}
 	}
-	a.logStats(ModeDirect, st)
-	sortObservations(obs)
 	c, err := adapter.EncodeCursor(next)
-	return adapter.Result{Observations: obs, Cursor: c}, err
+	if err != nil {
+		return adapter.Result{}, err
+	}
+	return a.result(ModeDirect, cfg, obs, st, c, since)
 }
 
 func readCapped(path string, limit int64) ([]byte, error) {

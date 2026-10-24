@@ -116,7 +116,7 @@ func obs() submit.Observation {
 // submission reaches the core through CONNECT with the credential from the
 // credential source, and the credential appears in no log or error.
 func TestSubmissionThroughAuthenticatedProxy(t *testing.T) {
-	core, err := submittest.NewCore()
+	core, err := submittest.NewProposedCore()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func assertNoSecret(t *testing.T, s string) {
 }
 
 func TestProxyFailuresNeverLeakCredential(t *testing.T) {
-	core, _ := submittest.NewCore()
+	core, _ := submittest.NewProposedCore()
 	defer core.Close()
 	ca := caFile(t, core)
 	// The proxy wants other credentials: 407, and the error must not show ours.
@@ -269,7 +269,7 @@ func TestNoProxyBypass(t *testing.T) {
 }
 
 func TestEnvironmentProxyUsedWhenNotConfigured(t *testing.T) {
-	core, _ := submittest.NewCore()
+	core, _ := submittest.NewProposedCore()
 	defer core.Close()
 	proxy := newProxy(t, "")
 	pu, _ := url.Parse(proxy.URL)

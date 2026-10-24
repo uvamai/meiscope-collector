@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/uvamai/meiscope-collector/internal/adapter"
+	"github.com/uvamai/meiscope-collector/internal/submit"
 )
 
 // Name is the adapter's registry name.
@@ -45,6 +46,7 @@ func (a *Adapter) Describe() adapter.Description {
 		Summary: "osquery query pack results from Fleet, a log sink or osqueryi output",
 		Settings: []string{
 			"mode (fleet | logsink | direct)",
+			"keystore_max_bytes (default 10485760, ceiling 104857600), keystore_max_files (default 1000, ceiling 10000)",
 			"fleet: url, team_id, queries, per_page, rate_per_second",
 			"logsink: dir, max_line_bytes",
 			"direct: files (comma-separated osqueryi --json outputs named <query>.json), host",
@@ -55,6 +57,11 @@ func (a *Adapter) Describe() adapter.Description {
 
 // Validate checks a configuration without contacting anything.
 func (a *Adapter) Validate(cfg adapter.Config) error {
+	if l, err := parseLimits(cfg); err != nil {
+		return err
+	} else if err := l.Validate(); err != nil {
+		return err
+	}
 	switch m := cfg.Setting("mode", ""); m {
 	case ModeFleet:
 		u, err := url.Parse(cfg.Setting("url", ""))
@@ -123,8 +130,65 @@ func (a *Adapter) logStats(mode string, st stats) {
 		return
 	}
 	for reason, n := range st {
-		a.env.Log.Warn("osquery rows skipped", "mode", mode, "reason", reason, "rows", n)
+		if n > 0 {
+			a.env.Log.Warn("osquery rows skipped", "mode", mode, "reason", reason, "rows", n)
+		}
 	}
+	if st[StatSkippedFeatureDisabled] > 0 {
+		a.env.Log.Warn("osquery observations were not sent because "+adapter.EnvLocalStoreV1+" is off; the core has not adopted store and file observations yet, and the cursor was not advanced",
+			"mode", mode, "skipped_feature_disabled", st[StatSkippedFeatureDisabled])
+	}
+}
+
+// limitsOf reads the keystore limits of a validated configuration.
+func limitsOf(cfg adapter.Config) Limits {
+	l := DefaultLimits()
+	if n, err := strconv.ParseInt(cfg.Setting("keystore_max_bytes", ""), 10, 64); err == nil {
+		l.MaxFileBytes = n
+	}
+	if n, err := strconv.Atoi(cfg.Setting("keystore_max_files", "")); err == nil {
+		l.MaxFiles = n
+	}
+	return l
+}
+
+// result finishes a sync: it applies the rules of finalize, and when the
+// local-store feature is off keeps the old cursor so nothing is lost for the
+// day the feature is turned on.
+func (a *Adapter) result(mode string, cfg adapter.Config, obs []submit.Observation, st stats, next, since adapter.Cursor) (adapter.Result, error) {
+	out := finalize(obs, st, limitsOf(cfg), a.env.Features.LocalStoreV1)
+	cursor := next
+	if !a.env.Features.LocalStoreV1 {
+		cursor = since
+	}
+	a.logStats(mode, st)
+	if a.env.Log != nil {
+		a.env.Log.Info("osquery sync", "instance", cfg.Name, "mode", mode, "observations", len(out),
+			StatSkippedOversize, st[StatSkippedOversize], StatSkippedExcluded, st[StatSkippedExcluded],
+			StatSkippedLimit, st[StatSkippedLimit], StatSkippedFeatureDisabled, st[StatSkippedFeatureDisabled])
+	}
+	return adapter.Result{Observations: out, Cursor: cursor, Stats: map[string]int(st)}, nil
+}
+
+// parseLimits reads keystore_max_bytes and keystore_max_files; values that
+// are not numbers are errors, ranges are checked by Limits.Validate.
+func parseLimits(cfg adapter.Config) (Limits, error) {
+	l := DefaultLimits()
+	if v := cfg.Setting("keystore_max_bytes", ""); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return l, errors.New("keystore_max_bytes must be an integer number of bytes")
+		}
+		l.MaxFileBytes = n
+	}
+	if v := cfg.Setting("keystore_max_files", ""); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return l, errors.New("keystore_max_files must be an integer")
+		}
+		l.MaxFiles = n
+	}
+	return l, nil
 }
 
 func positiveInt(cfg adapter.Config, name string, lo, hi int) error {

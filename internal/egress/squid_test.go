@@ -46,7 +46,7 @@ func TestSquidProxy(t *testing.T) {
 	}
 	// The fake core, served on all interfaces with a certificate for
 	// host.docker.internal, which is how the Squid container reaches the host.
-	core, err := submittest.NewCore()
+	core, err := submittest.NewProposedCore()
 	if err != nil {
 		t.Fatal(err)
 	}

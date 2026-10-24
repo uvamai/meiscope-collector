@@ -228,8 +228,8 @@ func TestRunOnceAdvancesCursorOnlyAfterSink(t *testing.T) {
 	}
 	ok := &sink{}
 	for i := 0; i < 2; i++ {
-		if n, err := adapter.RunOnce(context.Background(), adapter.Env{}, cfg, cur, ok); err != nil || n != 1 {
-			t.Fatalf("%d %v", n, err)
+		if n, err := adapter.RunOnce(context.Background(), adapter.Env{}, cfg, cur, ok); err != nil || n.Observations != 1 {
+			t.Fatalf("%+v %v", n, err)
 		}
 	}
 	if cur.Get("c1") != "2" || ok.obs[0].Target.Path != "/f0" || ok.obs[1].Target.Path != "/f1" {

@@ -59,9 +59,13 @@ func (a *Adapter) syncLogSink(ctx context.Context, cfg adapter.Config, since ada
 		return adapter.Result{}, err
 	}
 	next := logCursor{Files: map[string]int64{}}
-	st := stats{}
+	st := newStats()
 	type key struct{ host, query string }
-	snapshots := map[key][]submit.Observation{}
+	type snap struct {
+		obs []submit.Observation
+		st  stats
+	}
+	snapshots := map[key]snap{}
 	var events []submit.Observation
 	for _, f := range files {
 		if err := ctx.Err(); err != nil {
@@ -94,13 +98,15 @@ func (a *Adapter) syncLogSink(ctx context.Context, cfg adapter.Config, since ada
 			}
 			switch {
 			case ev.Snapshot != nil:
-				var obs []submit.Observation
+				// Only the latest snapshot per host and query counts, with its own
+				// statistics (a superseded snapshot's counts must not add up).
+				sn := snap{st: stats{}}
 				for _, r := range ev.Snapshot {
-					if o, ok := mapRow(q, ev.HostIdentifier, at, toRow(r), st); ok {
-						obs = append(obs, o)
+					if o, ok := mapRow(q, ev.HostIdentifier, at, toRow(r), sn.st); ok {
+						sn.obs = append(sn.obs, o)
 					}
 				}
-				snapshots[key{ev.HostIdentifier, q}] = obs
+				snapshots[key{ev.HostIdentifier, q}] = sn
 			case ev.Action == "removed":
 				st["removed_event"]++
 			case ev.Columns != nil:
@@ -118,12 +124,14 @@ func (a *Adapter) syncLogSink(ctx context.Context, cfg adapter.Config, since ada
 	}
 	obs := events
 	for _, s := range snapshots {
-		obs = append(obs, s...)
+		obs = append(obs, s.obs...)
+		st.add(s.st)
 	}
-	a.logStats(ModeLogSink, st)
-	sortObservations(obs)
 	c, err := adapter.EncodeCursor(next)
-	return adapter.Result{Observations: obs, Cursor: c}, err
+	if err != nil {
+		return adapter.Result{}, err
+	}
+	return a.result(ModeLogSink, cfg, obs, st, c, since)
 }
 
 func logFiles(dir string) ([]string, error) {

@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/adapter"
-	_ "github.com/uvamai/meiscope-collector/internal/adapter/osquery" // registers the osquery adapter
+	"github.com/uvamai/meiscope-collector/internal/adapter/osquery" // registers the osquery adapter
 	"github.com/uvamai/meiscope-collector/internal/buffer"
 	"github.com/uvamai/meiscope-collector/internal/clock"
 	"github.com/uvamai/meiscope-collector/internal/credential"
@@ -47,6 +47,9 @@ func defaultAdapterDeps() adapterDeps {
 const adapterUsage = `Usage: meiscope-collector adapter <list | run> [flags]
 
   list                         list the registered adapters
+  pack [--format osquery|fleet] [--query NAME] [--max-file-bytes N] [--max-files N]
+                               print the osquery pack for the keystore limits (defaults 10 MiB and
+                               1000 files per run; hard ceilings 100 MiB and 10000)
   run --config FILE [--every D] [NAME...]
                                run the adapter instances in FILE (a JSON array of
                                {"name","adapter","settings","credentials"}), once or
@@ -76,6 +79,8 @@ func adapterCmd(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 		return nil
 	case "run":
 		return adapterRunCmd(ctx, args[1:], stdout, stderr, getenv, deps)
+	case "pack":
+		return adapterPackCmd(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, adapterUsage)
 		return nil
@@ -83,6 +88,50 @@ func adapterCmd(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 		fmt.Fprint(stderr, adapterUsage)
 		return fmt.Errorf("unknown adapter subcommand %q", args[0])
 	}
+}
+
+func adapterPackCmd(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("adapter pack", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	format := fs.String("format", "osquery", "osquery (pack file) or fleet (saved queries for fleetctl apply)")
+	only := fs.String("query", "", "print only the SQL of this pack query")
+	l := osquery.DefaultLimits()
+	fs.Int64Var(&l.MaxFileBytes, "max-file-bytes", l.MaxFileBytes, "keystore files above this size are not hashed (ceiling 104857600)")
+	fs.IntVar(&l.MaxFiles, "max-files", l.MaxFiles, "at most this many keystore files per run (ceiling 10000)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected arguments: %v", fs.Args())
+	}
+	if *only != "" {
+		qs, err := osquery.Pack(l)
+		if err != nil {
+			return err
+		}
+		for _, q := range qs {
+			if q.Name == *only {
+				fmt.Fprintln(stdout, q.SQL)
+				return nil
+			}
+		}
+		return fmt.Errorf("no pack query named %q", *only)
+	}
+	var b []byte
+	var err error
+	switch *format {
+	case "osquery":
+		b, err = osquery.PackConf(l)
+	case "fleet":
+		b, err = osquery.FleetYAML(l)
+	default:
+		return fmt.Errorf("unknown format %q", *format)
+	}
+	if err != nil {
+		return err
+	}
+	_, err = stdout.Write(b)
+	return err
 }
 
 func loadAdapterConfigs(path string, names []string) ([]adapter.Config, error) {
@@ -109,6 +158,13 @@ func loadAdapterConfigs(path string, names []string) ([]adapter.Config, error) {
 			return nil, fmt.Errorf("%s: duplicate instance name %q", path, c.Name)
 		}
 		seen[c.Name] = true
+		// Configuration is validated when it is loaded: limits above the hard
+		// ceilings and other bad settings stop the run here with a clear error.
+		if f, ok := adapter.Lookup(c.Adapter); ok {
+			if err := f(adapter.Env{}).Validate(c); err != nil {
+				return nil, fmt.Errorf("%s: entry %d (%s): %w", path, i, c.Name, err)
+			}
+		}
 		if len(want) == 0 || want[c.Name] {
 			out = append(out, c)
 			delete(want, c.Name)
@@ -173,7 +229,14 @@ func adapterRunCmd(ctx context.Context, args []string, stdout, stderr io.Writer,
 		return err
 	}
 	hc := egress.Client(tr, 2*time.Minute)
-	env := adapter.Env{HTTP: hc, Creds: creds, Clock: deps.clk, Log: log}
+	feats, err := adapter.LoadFeatures(getenv)
+	if err != nil {
+		return err
+	}
+	if !feats.LocalStoreV1 {
+		log.Warn(adapter.EnvLocalStoreV1 + " is off: store and file observations (osquery) are counted and logged but not sent, because the core has not adopted them yet")
+	}
+	env := adapter.Env{HTTP: hc, Creds: creds, Clock: deps.clk, Log: log, Features: feats}
 
 	var sub *submit.Client
 	var buf *buffer.Buffer
@@ -243,15 +306,24 @@ func adapterCycle(ctx context.Context, env adapter.Env, instances []adapter.Conf
 		sink = dry
 	}
 	var errs []error
+	totals := map[string]int{}
 	for _, inst := range instances {
-		n, err := adapter.RunOnce(ctx, env, inst, cursors, sink)
+		rr, err := adapter.RunOnce(ctx, env, inst, cursors, sink)
 		if err != nil {
 			errs = append(errs, err)
 			log.Error("adapter run failed", "instance", inst.Name, "adapter", inst.Adapter, "error", err)
 			continue
 		}
-		log.Info("adapter run", "instance", inst.Name, "adapter", inst.Adapter, "observations", n)
+		log.Info("adapter run", "instance", inst.Name, "adapter", inst.Adapter, "observations", rr.Observations,
+			"skipped_oversize", rr.Stats["skipped_oversize"], "skipped_excluded", rr.Stats["skipped_excluded"],
+			"skipped_limit", rr.Stats["skipped_limit"], "skipped_feature_disabled", rr.Stats["skipped_feature_disabled"])
+		for _, k := range []string{"skipped_oversize", "skipped_excluded", "skipped_limit", "skipped_feature_disabled"} {
+			totals[k] += rr.Stats[k]
+		}
 	}
+	// Heartbeat fields until the core's heartbeat endpoint exists (WP0.3).
+	log.Info("adapter run totals", "skipped_oversize", totals["skipped_oversize"], "skipped_excluded", totals["skipped_excluded"],
+		"skipped_limit", totals["skipped_limit"], "skipped_feature_disabled", totals["skipped_feature_disabled"])
 	if buf != nil {
 		res, err := buf.Flush(ctx, sub, submit.MaxBatch)
 		if err != nil {

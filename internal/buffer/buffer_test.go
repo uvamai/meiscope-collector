@@ -57,7 +57,7 @@ func open(t *testing.T, dir string, k []byte, clk clock.Clock, mod func(*buffer.
 
 func newCore(t *testing.T) *submittest.Core {
 	t.Helper()
-	c, err := submittest.NewCore()
+	c, err := submittest.NewProposedCore()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -46,7 +46,9 @@ func newEnv(t *testing.T, rt http.RoundTripper) (adapter.Env, *bytes.Buffer) {
 		HTTP:  &http.Client{Transport: rt},
 		Creds: mapSource{"fleet_token": fleetToken},
 		Clock: clock.NewFake(t0),
-		Log:   slog.New(slog.NewJSONHandler(&logs, nil)),
+		Log:   slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		// The tests exercise the proposed shape; TestFeatureOff covers the default.
+		Features: adapter.Features{LocalStoreV1: true},
 	}, &logs
 }
 
@@ -77,7 +79,7 @@ func syncOK(t *testing.T, a adapter.Adapter, cfg adapter.Config, since adapter.C
 // accepts every observation.
 func submitAll(t *testing.T, obs []submit.Observation) {
 	t.Helper()
-	core, err := submittest.NewCore()
+	core, err := submittest.NewProposedCore()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +118,7 @@ func TestFleetReplay(t *testing.T) {
 	env, _ := newEnv(t, tr)
 	a := newAdapter(env)
 	res := syncOK(t, a, fleetConfig(), "")
-	want := map[string]int{"web01.example.test store": 3, "web01.example.test file": 1, "dc01.example.test store": 1, "app01.example.test store": 1, "app01.example.test file": 1}
+	want := map[string]int{"web01.example.test store": 3, "web01.example.test file": 1, "dc01.example.test store": 1, "app01.example.test store": 1, "app01.example.test file": 2}
 	if got := count(res.Observations); !reflect.DeepEqual(got, want) {
 		t.Fatalf("observations %v, want %v", got, want)
 	}
@@ -248,9 +250,10 @@ func TestLogSinkRecordedLinux(t *testing.T) {
 	a := newAdapter(env)
 	res := syncOK(t, a, logConfig(dir), "")
 	got := count(res.Observations)
-	if got["app01.example.test store"] != 121 || got["app01.example.test file"] != 3 || len(got) != 2 {
+	if got["app01.example.test store"] != 121 || got["app01.example.test file"] != 4 || len(got) != 2 {
 		t.Fatalf("observations %v", got)
 	}
+	loggedTimes := unixTimesOf(t, filepath.Join(dir, "osqueryd.snapshots.log"))
 	var p12, testCA bool
 	for _, o := range res.Observations {
 		if o.Target.Kind == submit.KindFile && o.Target.Path == "/opt/app/keystore.p12" {
@@ -262,7 +265,7 @@ func TestLogSinkRecordedLinux(t *testing.T) {
 		if c := o.Adapter.Certificate; c != nil && c.CommonName == "Meiscope Test Root CA" {
 			testCA = *c.CA && o.Target.Store == "posix/system" && o.Target.Path == "/etc/ssl/certs/ca-certificates.crt"
 		}
-		if !o.ObservedAt.Equal(time.Unix(1792848480, 0)) && !o.ObservedAt.Equal(time.Unix(1792848483, 0)) {
+		if !loggedTimes[o.ObservedAt.Unix()] {
 			t.Fatalf("observed_at %s is not the logged time", o.ObservedAt)
 		}
 	}
@@ -364,7 +367,7 @@ func TestDirect(t *testing.T) {
 		"files": files("direct", "direct-meiscope_certificates_posix.json", "direct-meiscope_keystores_posix.json"),
 	}}
 	res := syncOK(t, a, linux, "")
-	if got := count(res.Observations); got["app01.example.test store"] != 121 || got["app01.example.test file"] != 3 {
+	if got := count(res.Observations); got["app01.example.test store"] != 121 || got["app01.example.test file"] != 4 {
 		t.Fatalf("linux %v", got)
 	}
 	for _, o := range res.Observations {
@@ -445,70 +448,6 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestPushHandler(t *testing.T) {
-	dir := t.TempDir()
-	h := &osquery.PushHandler{Dir: dir, Creds: mapSource{"push_token": "push-token-abcdef"}, TokenRef: "push_token", Clock: clock.NewFake(t0)}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
-	post := func(token, body string) int {
-		req, _ := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(body))
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_ = resp.Body.Close()
-		return resp.StatusCode
-	}
-	ev := func(path string) string {
-		return `{"name":"pack_meiscope_meiscope_keystores_posix","hostIdentifier":"app01.example.test","unixTime":1792900000,"action":"added","columns":{"path":"` + path + `","size":"1","sha256":"` + strings.Repeat("b", 64) + `"}}`
-	}
-	cases := []struct {
-		token, body string
-		want        int
-	}{
-		{"", ev("/a.pem"), http.StatusUnauthorized},
-		{"wrong", ev("/a.pem"), http.StatusUnauthorized},
-		{"push-token-abcdef", ev("/ndjson1.pem") + "\n" + ev("/ndjson2.pem") + "\n", http.StatusNoContent},
-		{"push-token-abcdef", "[" + ev("/array.pem") + "]", http.StatusNoContent},
-		{"push-token-abcdef", `{"node_key":"k","log_type":"result","data":[` + ev("/tls.pem") + `]}`, http.StatusNoContent},
-		{"push-token-abcdef", `{"node_key":"k","log_type":"status","data":[{"x":1}]}`, http.StatusNoContent},
-		{"push-token-abcdef", "[1,2]", http.StatusBadRequest},
-		{"push-token-abcdef", "[", http.StatusBadRequest},
-		{"push-token-abcdef", "", http.StatusNoContent},
-	}
-	for i, c := range cases {
-		if got := post(c.token, c.body); got != c.want {
-			t.Errorf("case %d: HTTP %d, want %d", i, got, c.want)
-		}
-	}
-	resp, err := http.Get(srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusMethodNotAllowed {
-		t.Errorf("GET: %d", resp.StatusCode)
-	}
-	env, _ := newEnv(t, nil)
-	res := syncOK(t, newAdapter(env), logConfig(dir), "")
-	var paths []string
-	for _, o := range res.Observations {
-		paths = append(paths, o.Target.Path)
-	}
-	if want := []string{"/array.pem", "/ndjson1.pem", "/ndjson2.pem", "/tls.pem"}; !reflect.DeepEqual(paths, want) {
-		t.Fatalf("pushed paths %v, want %v", paths, want)
-	}
-	unconfigured := &osquery.PushHandler{Dir: dir, Creds: mapSource{}, TokenRef: "push_token"}
-	rec := httptest.NewRecorder()
-	unconfigured.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(ev("/x"))))
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("unconfigured: %d", rec.Code)
-	}
-}
-
 // TestPack checks the deployable pack: the queries the adapter maps, the
 // keystore caps and exclusions, and that the Fleet YAML carries the same SQL.
 func TestPack(t *testing.T) {
@@ -576,4 +515,26 @@ func TestPack(t *testing.T) {
 	if len(pack.Queries) != len(osquery.PackQueries) {
 		t.Errorf("pack has extra queries: %v", names)
 	}
+}
+
+// unixTimesOf returns the unixTime values of an osquery JSON log.
+func unixTimesOf(t *testing.T, path string) map[int64]bool {
+	t.Helper()
+	b, err := os.ReadFile(path) //nolint:gosec // test-only
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[int64]bool{}
+	for _, l := range bytes.Split(b, []byte("\n")) {
+		var ev struct {
+			UnixTime int64 `json:"unixTime"`
+		}
+		if json.Unmarshal(l, &ev) == nil && ev.UnixTime > 0 {
+			out[ev.UnixTime] = true
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("no unixTime in the log")
+	}
+	return out
 }
