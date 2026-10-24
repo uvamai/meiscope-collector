@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/adapter"
 	"github.com/uvamai/meiscope-collector/internal/credential"
@@ -140,4 +143,52 @@ func TestAdapterRunSubmitsDirectlyWithoutABuffer(t *testing.T) {
 		t.Fatal("unknown instance accepted")
 	}
 	_ = adapter.Names()
+}
+
+// TestReceiverCmdServesAndStops starts the enabled receiver on a free
+// loopback port, pushes one event with the bearer token, and stops it.
+func TestReceiverCmdServesAndStops(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	spool := t.TempDir()
+	env := envOf(map[string]string{
+		"MEISCOPE_RECEIVER_ENABLED": "true", "MEISCOPE_RECEIVER_ADDR": addr, "MEISCOPE_RECEIVER_DIR": spool,
+		"MEISCOPE_RECEIVER_TOKEN_REF": "push_token", "MEISCOPE_LOG_FORMAT": "text",
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	var errb bytes.Buffer
+	go func() {
+		done <- receiverCmd(ctx, []string{"run"}, &errb, env, adapterTestDeps(staticCreds{"push_token": "synthetic-push-token"}))
+	}()
+	ev := `{"name":"pack_meiscope_meiscope_keystores_posix","hostIdentifier":"app01.example.test","columns":{"path":"/opt/a.pfx","size":"1","sha256":"` + strings.Repeat("a", 64) + `"}}`
+	var status int
+	for i := 0; i < 50; i++ {
+		req, _ := http.NewRequest(http.MethodPost, "http://"+addr, strings.NewReader(ev))
+		req.Header.Set("Authorization", "Bearer synthetic-push-token")
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			status = resp.StatusCode
+			_ = resp.Body.Close()
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("receiver: %v\n%s", err, errb.String())
+	}
+	if status != http.StatusNoContent {
+		t.Fatalf("status %d\n%s", status, errb.String())
+	}
+	if ents, _ := os.ReadDir(spool); len(ents) != 1 {
+		t.Fatalf("spool %v", ents)
+	}
+	if strings.Contains(errb.String(), "synthetic-push-token") {
+		t.Fatal("the token is in the log")
+	}
 }
