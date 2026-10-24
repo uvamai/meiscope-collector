@@ -1,0 +1,116 @@
+# Runs the Meiscope osquery pack's Windows queries on a real Windows runner
+# (WP1.1 acceptance: "the pack runs on a Windows Server 2022 host"; the
+# runner image is windows-2025). It installs osquery 5.12.1 from the official
+# release zip without a system-wide install, creates a self-signed test
+# certificate in LocalMachine\My and a .pfx in an included path (both
+# generated in the job, test-only, removed at the end), runs the pack's
+# Windows queries through osqueryi as the runner's administrator, and checks
+# the rows and their ingestion into the fake core.
+#
+# STATUS: written and linted with actionlint, NOT YET EXECUTED. The
+# repository has no GitHub remote yet; the first run happens after the first
+# push. Actions are pinned by commit SHA (ADR-0015); the tag is in the comment.
+name: windows-osquery
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packs/**"
+      - "internal/adapter/**"
+      - ".github/workflows/windows-osquery.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-osquery-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+  GO_VERSION: "1.27.3"
+  OSQUERY_VERSION: "5.12.1"
+  OSQUERY_URL: https://github.com/osquery/osquery/releases/download/5.12.1/osquery-5.12.1.windows_x86_64.zip
+  # osquery publishes no SHA-256 for this release. This value is the hash of
+  # the release asset as downloaded on 2026-10-25 (trust on first use) and
+  # must be confirmed against an osquery-published source by a maintainer.
+  OSQUERY_ZIP_SHA256: 45AB01C1B413165F3836313EA9FF8AC9CB293D41F3DB0B4D0E390FA1D6370A6D
+
+jobs:
+  pack:
+    name: pack queries on Windows
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install osquery from the release zip (no system-wide install)
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "osquery.zip"
+          Invoke-WebRequest -Uri $env:OSQUERY_URL -OutFile $zip -UseBasicParsing
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash
+          if ($hash -ne $env:OSQUERY_ZIP_SHA256) { throw "osquery zip hash $hash does not match the pinned value" }
+          $dest = Join-Path $env:RUNNER_TEMP "osquery"
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          $exe = Get-ChildItem $dest -Recurse -Filter osqueryi.exe | Select-Object -First 1
+          $sig = Get-AuthenticodeSignature $exe.FullName
+          if ($sig.Status -ne 'Valid') { throw "osqueryi.exe signature is $($sig.Status)" }
+          "OSQUERYI=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $exe.FullName --version
+
+      - name: Create the test certificate and keystore (test-only, generated here)
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Subject "CN=web01.example.test" -DnsName "web01.example.test" `
+            -CertStoreLocation "Cert:\LocalMachine\My" -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(30)
+          "CERT_THUMBPRINT=$($cert.Thumbprint.ToLower())" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $dir = "C:\ProgramData\ExampleApp\tls"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $bytes = New-Object byte[] 24
+          [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+          $pwText = [Convert]::ToBase64String($bytes)
+          "::add-mask::$pwText"
+          "PFX_PASSWORD=$pwText" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $pw = ConvertTo-SecureString -String $pwText -AsPlainText -Force
+          Export-PfxCertificate -Cert $cert -FilePath "$dir\web01.pfx" -Password $pw | Out-Null
+          Get-Item "$dir\web01.pfx" | Select-Object FullName, Length
+
+      - name: Run the pack's Windows queries through osqueryi
+        shell: pwsh
+        run: |
+          go build -o "$env:RUNNER_TEMP\collector.exe" ./cmd/meiscope-collector
+          $out = Join-Path $env:RUNNER_TEMP "osq-out"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          foreach ($q in "meiscope_certificates_windows", "meiscope_keystores_windows", "meiscope_keystore_counts_windows") {
+            $sql = & "$env:RUNNER_TEMP\collector.exe" adapter pack --query $q
+            if ($LASTEXITCODE -ne 0) { throw "adapter pack --query $q failed" }
+            $json = & $env:OSQUERYI --json ($sql -join " ")
+            if ($LASTEXITCODE -ne 0) { throw "osqueryi failed for $q" }
+            Set-Content -Path (Join-Path $out "web01-$q.json") -Value $json -Encoding utf8
+          }
+          Get-ChildItem $out | Select-Object Name, Length
+          "OSQUERY_WINDOWS_DIR=$out" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Assert the rows and their ingestion into the fake core
+        shell: pwsh
+        env:
+          MEISCOPE_WINDOWS_OSQUERY_DIR: ${{ env.OSQUERY_WINDOWS_DIR }}
+          MEISCOPE_WINDOWS_CERT_THUMBPRINT: ${{ env.CERT_THUMBPRINT }}
+          MEISCOPE_WINDOWS_PFX_PATH: C:\ProgramData\ExampleApp\tls\web01.pfx
+          MEISCOPE_WINDOWS_PFX_PASSWORD: ${{ env.PFX_PASSWORD }}
+        run: go test -tags devcredentials -count=1 -v -run TestWindowsPackRun ./internal/adapter/osquery/
+
+      - name: Remove the test certificate and keystore
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:CERT_THUMBPRINT) { Remove-Item "Cert:\LocalMachine\My\$($env:CERT_THUMBPRINT)" -ErrorAction SilentlyContinue }
+          Remove-Item -Recurse -Force "C:\ProgramData\ExampleApp" -ErrorAction SilentlyContinue
