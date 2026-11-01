@@ -9,9 +9,11 @@ Licence: Apache-2.0. The collector is public so that you can read and verify
 exactly what runs in your network; release binaries are built by the public
 pipeline in `.github/workflows` and signed (cosign keyless, SBOM, provenance).
 
-> **Status: skeleton (WP0.1).** This release has `version`, a placeholder
-> `run` loop with a local `/healthz`, and a placeholder `enrol`. It does not
-> probe anything or contact the core yet. Probing and enrolment arrive in WP0.3.
+> **Status: skeleton (WP0.1) plus the CT poller (WP0.4).** This release has
+> `version`, a placeholder `run` loop with a local `/healthz`, a placeholder
+> `enrol`, and `ct-poll` / `ct-baseline`, which read public Certificate
+> Transparency data for your owned domains (see [docs/ct.md](docs/ct.md)).
+> It does not probe anything yet. Probing and enrolment arrive in WP0.3.
 
 ## What the collector sends, and what it never sends
 
@@ -54,12 +56,16 @@ curl http://127.0.0.1:8090/healthz
 | `MEISCOPE_HEALTH_ADDR` | `127.0.0.1:8090` | listen address of `/healthz` (`0.0.0.0:8090` in the container image) |
 | `MEISCOPE_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `MEISCOPE_LOG_FORMAT` | `json` | `json` or `text` |
+| `MEISCOPE_CT_*` | | Certificate Transparency poller: owned domains, logs, state; see [docs/ct.md](docs/ct.md) |
 
 ## API contract
 
-`api/collector.yaml` is a vendored copy of the collector surface
-(`/collector/v1`, OpenAPI 3.1) of the Meiscope core. Changes inside `/v1`
-are additive only.
+`api/collector.yaml` is a byte-for-byte vendored copy of the collector
+surface (`/collector/v1`, OpenAPI 3.1) of the Meiscope core, which owns it
+(contract 0.4.0). The collector does not extend it; the tests submit to a
+fake core that validates every request against this file. Changes inside
+`/v1` are additive only. The CT poller's use of it (target kind `ct_log`,
+`ct_entry`, `GET /owned-domains`) is described in [docs/ct.md](docs/ct.md).
 
 ## Install
 

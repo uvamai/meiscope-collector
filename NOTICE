@@ -6,7 +6,28 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 Third-party components
 ----------------------
 
-The current release links only the Go standard library.
+The following third-party components are linked into the collector:
+
+  - certificate-transparency-go (github.com/google/certificate-transparency-go)
+    Copyright 2016 Google LLC. All Rights Reserved.
+    Licensed under the Apache License, Version 2.0.
+    Used by the Certificate Transparency poller (WP0.4).
+
+  - Go Protocol Buffers (google.golang.org/protobuf), a dependency of
+    certificate-transparency-go/client
+    Copyright (c) 2018 The Go Authors. All rights reserved.
+    Licensed under the BSD 3-Clause License.
+
+  - Go cryptography supplementary packages (golang.org/x/crypto), a
+    dependency of certificate-transparency-go
+    Copyright 2009 The Go Authors.
+    Licensed under the BSD 3-Clause License.
+
+Used in tests only (not linked into the binary):
+
+  - yaml.v3 (gopkg.in/yaml.v3)
+    Copyright 2011-2016 Canonical Ltd.; portions Copyright (c) 2006-2010 Kirill Simonov.
+    Licensed under the MIT License and the Apache License, Version 2.0.
 
 The following components are planned dependencies (work package WP0.3). They
 are NOT imported yet; this list is kept so their notices are carried from the
