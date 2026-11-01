@@ -12,8 +12,9 @@
 //     application data or credential is ever sent. Key possession is
 //     therefore not proven: the result is what the server presents;
 //   - STARTTLS sends only the protocol's upgrade command (SMTP EHLO and
-//     STARTTLS, IMAP STARTTLS, POP3 STLS, LDAP StartTLS extended operation);
-//     no authentication, no LDAP bind.
+//     STARTTLS, IMAP STARTTLS, POP3 STLS, LDAP StartTLS extended operation,
+//     RDP X.224 negotiation, PostgreSQL SSLRequest, MySQL SSLRequest, TDS
+//     PRELOGIN); no authentication, no LDAP bind, no user or database name.
 package probe
 
 import (
@@ -45,6 +46,12 @@ const (
 	StartTLSIMAP = "imap"
 	StartTLSPOP3 = "pop3"
 	StartTLSLDAP = "ldap"
+	// Not STARTTLS in the strict sense but the same idea: a plaintext
+	// exchange that asks the server to start TLS.
+	StartTLSRDP      = "rdp"
+	StartTLSPostgres = "postgres"
+	StartTLSMySQL    = "mysql"
+	StartTLSMSSQL    = "mssql"
 )
 
 // errStopAfterCertificate aborts the handshake once the chain is captured.
@@ -72,6 +79,7 @@ type Prober struct {
 	log      *slog.Logger
 	budget   *Budget
 	allow    *Allow
+	pace     func(context.Context, netip.Addr) error
 }
 
 // Options configure a Prober.
@@ -90,11 +98,16 @@ type Options struct {
 	// Allow restricts targets; nil means no list (the metadata block still
 	// applies).
 	Allow *Allow
+	// Pace, when set, is called with the vetted address after every policy
+	// check and immediately before the dial; an error refuses the probe. A
+	// scanner uses it for its own rate limits and pause. When Pace is set and
+	// Budget is nil, no per-process budget applies (the caller paces).
+	Pace func(ctx context.Context, addr netip.Addr) error
 }
 
 // New returns a Prober.
 func New(o Options) *Prober {
-	p := &Prober{resolver: o.Resolver, roots: o.Roots, now: o.Now, log: o.Logger, budget: o.Budget, allow: o.Allow}
+	p := &Prober{resolver: o.Resolver, roots: o.Roots, now: o.Now, log: o.Logger, budget: o.Budget, allow: o.Allow, pace: o.Pace}
 	if p.resolver == nil {
 		p.resolver = net.DefaultResolver
 	}
@@ -104,7 +117,7 @@ func New(o Options) *Prober {
 	if p.log == nil {
 		p.log = slog.Default()
 	}
-	if p.budget == nil {
+	if p.budget == nil && p.pace == nil {
 		p.budget, _ = NewBudget(DefaultProbesPerMinute, p.now) // a valid constant cannot fail
 	}
 	return p
@@ -219,10 +232,19 @@ func startTLSMode(m string, port int) (string, error) {
 			return StartTLSPOP3, nil
 		case 389:
 			return StartTLSLDAP, nil
+		case 3389:
+			return StartTLSRDP, nil
+		case 5432:
+			return StartTLSPostgres, nil
+		case 3306:
+			return StartTLSMySQL, nil
+		case 1433:
+			return StartTLSMSSQL, nil
 		default:
 			return StartTLSNone, nil
 		}
-	case StartTLSNone, StartTLSSMTP, StartTLSIMAP, StartTLSPOP3, StartTLSLDAP:
+	case StartTLSNone, StartTLSSMTP, StartTLSIMAP, StartTLSPOP3, StartTLSLDAP,
+		StartTLSRDP, StartTLSPostgres, StartTLSMySQL, StartTLSMSSQL:
 		return m, nil
 	default:
 		return "", ErrInvalidSTARTTLS
@@ -240,8 +262,10 @@ func (p *Prober) Probe(ctx context.Context, t Target) (*Result, error) {
 	if p.allow != nil && !p.allow.allowsHost(t.Host) {
 		return nil, fmt.Errorf("%w (%s)", ErrNotAllowed, t.Host)
 	}
-	if err := p.budget.Take(); err != nil {
-		return nil, err
+	if p.budget != nil {
+		if err := p.budget.Take(); err != nil {
+			return nil, err
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, t.Timeout)
 	defer cancel()
@@ -257,12 +281,17 @@ func (p *Prober) Probe(ctx context.Context, t Target) (*Result, error) {
 	if class != ClassPublic {
 		res.Notes = append(res.Notes, fmt.Sprintf("target address %s is %s (not on the public internet); make sure you are authorised to test it", addr, class))
 	}
+	if p.pace != nil {
+		if err := p.pace(ctx, addr); err != nil {
+			return nil, err
+		}
+	}
 
 	d := net.Dialer{Timeout: t.Timeout, ControlContext: p.dialGuard(addr)}
 	p.log.DebugContext(ctx, "probe dial", slog.String("ip", addr.String()), slog.Int("port", t.Port), slog.String("starttls", t.StartTLS))
 	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(addr.String(), strconv.Itoa(t.Port)))
 	if err != nil {
-		return nil, fmt.Errorf("connect: %w", err)
+		return nil, &PhaseError{Phase: PhaseConnect, Err: err}
 	}
 	defer func() { _ = conn.Close() }()
 	if dl, ok := ctx.Deadline(); ok {
@@ -271,8 +300,9 @@ func (p *Prober) Probe(ctx context.Context, t Target) (*Result, error) {
 		}
 	}
 
-	if err := startTLS(conn, t.StartTLS); err != nil {
-		return nil, fmt.Errorf("starttls %s: %w", t.StartTLS, err)
+	tlsConn, err := startTLS(conn, t.StartTLS)
+	if err != nil {
+		return nil, &PhaseError{Phase: PhaseStartTLS, Mode: t.StartTLS, Err: err}
 	}
 
 	serverName := t.SNI
@@ -314,12 +344,12 @@ func (p *Prober) Probe(ctx context.Context, t Target) (*Result, error) {
 	if t.StartTLS == StartTLSNone {
 		cfg.NextProtos = []string{"h2", "http/1.1"}
 	}
-	hsErr := tls.Client(conn, cfg).HandshakeContext(ctx)
+	hsErr := tls.Client(tlsConn, cfg).HandshakeContext(ctx)
 	if captured == nil {
 		if hsErr == nil {
 			hsErr = errors.New("handshake ended without a server certificate")
 		}
-		return nil, fmt.Errorf("tls handshake: %w", hsErr)
+		return nil, &PhaseError{Phase: PhaseHandshake, Err: hsErr}
 	}
 
 	res.ObservedAtUTC = p.now().UTC()
@@ -371,14 +401,14 @@ func (p *Prober) dialGuard(vetted netip.Addr) func(context.Context, string, stri
 	return func(_ context.Context, _, address string, _ syscall.RawConn) error {
 		ap, err := netip.ParseAddrPort(address)
 		if err != nil {
-			return fmt.Errorf("dial guard: %w", err)
+			return fmt.Errorf("%w: %w", ErrDialGuard, err)
 		}
 		dialled := ap.Addr().Unmap()
 		if _, forbidden := ClassifyAddr(dialled); forbidden {
 			return ErrForbiddenTarget
 		}
 		if dialled != vetted {
-			return fmt.Errorf("dial guard: dialling %s, but %s was vetted", dialled, vetted)
+			return fmt.Errorf("%w: dialling %s, but %s was vetted", ErrDialGuard, dialled, vetted)
 		}
 		if p.allow != nil && !p.allow.allowsDial(dialled, vetted) {
 			return fmt.Errorf("%w (dial to %s)", ErrNotAllowed, dialled)

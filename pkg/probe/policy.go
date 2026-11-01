@@ -152,3 +152,30 @@ func (a *Allow) inPrefixes(ip netip.Addr) bool {
 	}
 	return false
 }
+
+// NewAllow builds an allow list from DNS suffixes and prefixes (for example
+// a signed scan scope's hosts and CIDRs), with the rules of ParseAllow.
+func NewAllow(suffixes []string, prefixes []netip.Prefix) (*Allow, error) {
+	a := &Allow{}
+	for _, s := range suffixes {
+		e := strings.ToLower(strings.TrimPrefix(strings.TrimSuffix(strings.TrimSpace(s), "."), "."))
+		if e == "" || strings.ContainsAny(e, "*/ \t,") {
+			return nil, fmt.Errorf("allow list entry %q: give a DNS suffix such as example.internal", s)
+		}
+		a.suffixes = append(a.suffixes, e)
+	}
+	for _, p := range prefixes {
+		if !p.IsValid() {
+			return nil, errors.New("allow list entry: invalid prefix")
+		}
+		bits := p.Bits()
+		if p.Addr().Is4In6() { // ::ffff:a.b.c.d/n covers a.b.c.d/(n-96)
+			bits = max(bits-96, 0)
+		}
+		a.prefixes = append(a.prefixes, netip.PrefixFrom(p.Addr().Unmap(), bits).Masked())
+	}
+	if len(a.suffixes) == 0 && len(a.prefixes) == 0 {
+		return nil, errors.New("allow list has no entries")
+	}
+	return a, nil
+}

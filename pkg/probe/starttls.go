@@ -27,11 +27,12 @@ var (
 	errTooManyLines       = errors.New("server reply has too many lines")
 )
 
-// startTLS runs the plaintext upgrade for mode on conn. Server text is never
-// returned in errors (it is untrusted); only reply codes are.
-func startTLS(conn net.Conn, mode string) error {
+// startTLS runs the plaintext upgrade for mode on conn and returns the
+// connection TLS runs on (conn itself, or the TDS framing for mssql). Server
+// text is never returned in errors (it is untrusted); only reply codes are.
+func startTLS(conn net.Conn, mode string) (net.Conn, error) {
 	if mode == StartTLSNone {
-		return nil
+		return conn, nil
 	}
 	br := bufio.NewReaderSize(io.LimitReader(conn, maxPreTLSBytes), maxLineBytes)
 	var err error
@@ -44,16 +45,27 @@ func startTLS(conn net.Conn, mode string) error {
 		err = pop3StartTLS(conn, br)
 	case StartTLSLDAP:
 		err = ldapStartTLS(conn, br)
+	case StartTLSRDP:
+		err = rdpStartTLS(conn, br)
+	case StartTLSPostgres:
+		err = postgresStartTLS(conn, br)
+	case StartTLSMySQL:
+		err = mysqlStartTLS(conn, br)
+	case StartTLSMSSQL:
+		err = mssqlStartTLS(conn, br)
 	default:
 		err = ErrInvalidSTARTTLS
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if br.Buffered() > 0 {
-		return ErrPreTLSInjection
+		return nil, ErrPreTLSInjection
 	}
-	return nil
+	if mode == StartTLSMSSQL {
+		return newTDSConn(conn), nil
+	}
+	return conn, nil
 }
 
 func readLine(br *bufio.Reader) (string, error) {

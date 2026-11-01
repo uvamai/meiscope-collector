@@ -300,7 +300,7 @@ func TestStartTLSUnknownMode(t *testing.T) {
 	c1, c2 := net.Pipe()
 	defer c1.Close()
 	defer c2.Close()
-	if err := startTLS(c1, "xmpp"); !errors.Is(err, ErrInvalidSTARTTLS) {
+	if _, err := startTLS(c1, "xmpp"); !errors.Is(err, ErrInvalidSTARTTLS) {
 		t.Fatalf("err = %v", err)
 	}
 }

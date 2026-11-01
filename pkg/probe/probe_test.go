@@ -65,6 +65,13 @@ func (s *server) lines() []string {
 
 func startServer(t *testing.T, cfg *tls.Config, preamble func(s *server, c net.Conn, br *bufio.Reader) bool) *server {
 	t.Helper()
+	return startServerWrap(t, cfg, preamble, nil)
+}
+
+// startServerWrap is startServer with the TLS server running on wrap(conn)
+// (the TDS framing for SQL Server); wrap nil means the connection itself.
+func startServerWrap(t *testing.T, cfg *tls.Config, preamble func(s *server, c net.Conn, br *bufio.Reader) bool, wrap func(net.Conn) net.Conn) *server {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +108,11 @@ func startServer(t *testing.T, cfg *tls.Config, preamble func(s *server, c net.C
 				if cfg == nil {
 					return
 				}
-				tc := tls.Server(&bufConn{Conn: c, r: br}, cfg)
+				var tconn net.Conn = &bufConn{Conn: c, r: br}
+				if wrap != nil {
+					tconn = wrap(tconn)
+				}
+				tc := tls.Server(tconn, cfg)
 				err := tc.Handshake()
 				s.mu.Lock()
 				s.hsErr = err

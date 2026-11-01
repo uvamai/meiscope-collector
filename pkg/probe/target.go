@@ -15,7 +15,7 @@ var (
 	ErrInvalidPort     = errors.New("port must be between 1 and 65535")
 	ErrForbiddenTarget = errors.New("target refused: link-local and cloud metadata addresses are never probed")
 	ErrInvalidTimeout  = errors.New("timeout_seconds must be between 1 and 15")
-	ErrInvalidSTARTTLS = errors.New("starttls must be one of auto, none, smtp, imap, pop3, ldap")
+	ErrInvalidSTARTTLS = errors.New("starttls must be one of auto, none, smtp, imap, pop3, ldap, rdp, postgres, mysql, mssql")
 )
 
 // Address classes reported to the caller.
