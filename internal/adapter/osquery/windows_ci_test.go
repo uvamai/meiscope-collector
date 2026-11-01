@@ -48,8 +48,12 @@ func TestWindowsPackRun(t *testing.T) {
 	for _, o := range res.Observations {
 		switch o.Target.Kind {
 		case submit.KindStore:
-			if o.Target.Store == "windows/LocalMachine/My" && o.Adapter.Certificate.SHA1 == thumb {
-				cert = o.Adapter.Certificate.CommonName == "web01.example.test"
+			if o.Adapter.Certificate.SHA1 == thumb {
+				// Recorded so a mismatch says what osquery actually reported.
+				t.Logf("test certificate seen: store %q, common name %q", o.Target.Store, o.Adapter.Certificate.CommonName)
+				if o.Target.Store == "windows/LocalMachine/My" {
+					cert = o.Adapter.Certificate.CommonName == "web01.example.test"
+				}
 			}
 		case submit.KindFile:
 			if strings.EqualFold(o.Target.Path, pfx) {
