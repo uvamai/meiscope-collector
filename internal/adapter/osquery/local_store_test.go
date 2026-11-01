@@ -182,7 +182,7 @@ func TestFileMetadataAndEncryptedStoreFinding(t *testing.T) {
 	if f.StoreType != submit.StorePKCS12 || f.Owner != "0" || f.Permissions != "0600" || f.MTime == nil || f.Size == nil || *f.Size != 2547 {
 		t.Errorf("file metadata %+v", f)
 	}
-	if len(p12.Adapter.Findings) != 1 || p12.Adapter.Findings[0].Code != submit.FindingStoreEncryptedNotRead {
+	if len(p12.Adapter.Findings) != 1 || p12.Adapter.Findings[0].Code != submit.FindingKeystoreNotParsed {
 		t.Errorf("findings %+v", p12.Adapter.Findings)
 	}
 	if jks := got["/opt/app/trust.jks"]; jks.Adapter == nil || jks.Adapter.File.StoreType != submit.StoreJKS || len(jks.Adapter.Findings) != 1 {
@@ -322,7 +322,7 @@ func opensslOrSkip(t *testing.T) string {
 // size, times, mode and SHA-256. The key (DER, PEM, base64), the file bytes
 // and the password must appear nowhere: not in the observation JSON, not in
 // the logs, not in the on-disk buffer, not in what the core receives. The
-// store is reported as store_encrypted_not_read. No key is committed.
+// store is reported as keystore_not_parsed. No key is committed.
 func TestNoKeyMaterialFromARealPKCS12(t *testing.T) {
 	ossl := opensslOrSkip(t)
 	dir := t.TempDir()
@@ -383,7 +383,7 @@ func TestNoKeyMaterialFromARealPKCS12(t *testing.T) {
 		t.Fatalf("%d observations (%v)", len(res.Observations), res.Stats)
 	}
 	o := res.Observations[0]
-	if o.Adapter.File.StoreType != submit.StorePKCS12 || len(o.Adapter.Findings) != 1 || o.Adapter.Findings[0].Code != submit.FindingStoreEncryptedNotRead {
+	if o.Adapter.File.StoreType != submit.StorePKCS12 || len(o.Adapter.Findings) != 1 || o.Adapter.Findings[0].Code != submit.FindingKeystoreNotParsed {
 		t.Fatalf("not reported as an encrypted store: %+v", o.Adapter)
 	}
 	obsJSON, _ := json.Marshal(res.Observations)

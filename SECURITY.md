@@ -46,8 +46,8 @@ the code-signing certificate exists.
   networks or connect to arbitrary hosts. Observations carry public
   certificate data and file metadata (path, size, times, owner, mode,
   SHA-256) only, never private keys, keystore passwords or key-alias
-  secrets. Password-protected keystores are reported as
-  `store_encrypted_not_read` and never opened; the collector never guesses,
+  secrets. Keystore containers (.p12, .pfx, .jks, .kdb) are reported as
+  `keystore_not_parsed` and never opened; the collector never guesses,
   defaults or brute-forces a password.
 - The environment-variable credential source exists only in development
   builds (`-tags devcredentials`); release builds refuse to start when
