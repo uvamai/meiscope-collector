@@ -1,0 +1,25 @@
+# Build and package output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Local configuration and secrets (never committed; use sops+age)
+.env
+.env.*
+*.age
+*.key
+*.pem
+*.agekey
+keys.txt
+node_modules/
+!testdata/**/*.pem
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db

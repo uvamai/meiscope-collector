@@ -1,0 +1,44 @@
+[Unit]
+Description=Meiscope collector (outbound-only certificate discovery)
+Documentation=https://github.com/uvamai/meiscope-collector
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/meiscope-collector run
+EnvironmentFile=-/etc/meiscope-collector/collector.env
+Restart=on-failure
+RestartSec=5s
+
+# Unprivileged, ephemeral service user; state lives in /var/lib/meiscope-collector.
+DynamicUser=yes
+StateDirectory=meiscope-collector
+StateDirectoryMode=0700
+
+# Hardening
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

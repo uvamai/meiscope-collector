@@ -1,0 +1,21 @@
+Meiscope collector (meiscope-collector)
+Copyright 2026 UVAMAI
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party components
+----------------------
+
+The current release links only the Go standard library.
+
+The following components are planned dependencies (work package WP0.3). They
+are NOT imported yet; this list is kept so their notices are carried from the
+first release that includes them:
+
+  - tlsx (github.com/projectdiscovery/tlsx)
+    Copyright (c) 2022 ProjectDiscovery
+    Licensed under the MIT License.
+
+  - naabu (github.com/projectdiscovery/naabu/v2)
+    Copyright (c) 2021 ProjectDiscovery, Inc.
+    Licensed under the MIT License.
