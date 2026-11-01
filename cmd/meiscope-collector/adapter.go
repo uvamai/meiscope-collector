@@ -95,6 +95,8 @@ func adapterPackCmd(args []string, stdout, stderr io.Writer) error {
 	fs.SetOutput(stderr)
 	format := fs.String("format", "osquery", "osquery (pack file) or fleet (saved queries for fleetctl apply)")
 	only := fs.String("query", "", "print only the SQL of this pack query")
+	list := fs.Bool("list", false, "print the name and platform of every pack query, one per line")
+	extra := fs.String("windows-extra-roots", "", "comma-separated Windows folders searched in addition to the default application folders (at most 10)")
 	l := osquery.DefaultLimits()
 	fs.Int64Var(&l.MaxFileBytes, "max-file-bytes", l.MaxFileBytes, "keystore files above this size are not hashed (ceiling 104857600)")
 	fs.IntVar(&l.MaxFiles, "max-files", l.MaxFiles, "at most this many keystore files per run (ceiling 10000)")
@@ -103,6 +105,21 @@ func adapterPackCmd(args []string, stdout, stderr io.Writer) error {
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("unexpected arguments: %v", fs.Args())
+	}
+	for _, r := range strings.Split(*extra, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			l.ExtraWindowsRoots = append(l.ExtraWindowsRoots, r)
+		}
+	}
+	if *list {
+		qs, err := osquery.Pack(l)
+		if err != nil {
+			return err
+		}
+		for _, q := range qs {
+			fmt.Fprintf(stdout, "%s\t%s\n", q.Name, q.Platform)
+		}
+		return nil
 	}
 	if *only != "" {
 		qs, err := osquery.Pack(l)

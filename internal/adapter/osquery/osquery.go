@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -47,6 +48,7 @@ func (a *Adapter) Describe() adapter.Description {
 		Settings: []string{
 			"mode (fleet | logsink | direct)",
 			"keystore_max_bytes (default 10485760, ceiling 104857600), keystore_max_files (default 1000, ceiling 10000)",
+			"windows_extra_roots (comma-separated Windows folders searched in addition to the default application folders; at most 10, never a drive root or a private-key folder)",
 			"fleet: url, team_id, queries, per_page, rate_per_second",
 			"logsink: dir, max_line_bytes",
 			"direct: files (comma-separated osqueryi --json outputs named <query>.json), host",
@@ -130,14 +132,39 @@ func (a *Adapter) logStats(mode string, st stats) {
 		return
 	}
 	for reason, n := range st {
-		if n > 0 {
+		if n > 0 && !strings.HasPrefix(reason, statRootPrefix) {
 			a.env.Log.Warn("osquery rows skipped", "mode", mode, "reason", reason, "rows", n)
 		}
+	}
+	for _, id := range rootIDs(st) {
+		a.env.Log.Info("osquery keystore root", "mode", mode, "root", id,
+			"files_seen", st[statRootKey(id, "files_seen")],
+			StatSkippedOversize, st[statRootKey(id, StatSkippedOversize)],
+			StatSkippedExcluded, st[statRootKey(id, StatSkippedExcluded)],
+			StatSkippedLimit, st[statRootKey(id, StatSkippedLimit)])
 	}
 	if st[StatSkippedFeatureDisabled] > 0 {
 		a.env.Log.Warn("osquery observations were not sent because "+adapter.EnvLocalStoreV1+" is off; the core has not adopted store and file observations yet, and the cursor was not advanced",
 			"mode", mode, "skipped_feature_disabled", st[StatSkippedFeatureDisabled])
 	}
+}
+
+// rootIDs lists, sorted, the roots a run has per-root statistics for.
+func rootIDs(st stats) []string {
+	seen := map[string]bool{}
+	for k := range st {
+		if rest, ok := strings.CutPrefix(k, statRootPrefix); ok {
+			if id, _, ok := strings.Cut(rest, "."); ok {
+				seen[id] = true
+			}
+		}
+	}
+	ids := make([]string, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // limitsOf reads the keystore limits of a validated configuration.
@@ -149,6 +176,7 @@ func limitsOf(cfg adapter.Config) Limits {
 	if n, err := strconv.Atoi(cfg.Setting("keystore_max_files", "")); err == nil {
 		l.MaxFiles = n
 	}
+	l.ExtraWindowsRoots = splitList(cfg.Setting("windows_extra_roots", ""))
 	return l
 }
 
@@ -188,6 +216,7 @@ func parseLimits(cfg adapter.Config) (Limits, error) {
 		}
 		l.MaxFiles = n
 	}
+	l.ExtraWindowsRoots = splitList(cfg.Setting("windows_extra_roots", ""))
 	return l, nil
 }
 

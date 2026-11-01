@@ -65,7 +65,7 @@ func fleetQueries(cfg adapter.Config) []string {
 	if qs := splitList(cfg.Setting("queries", "")); len(qs) > 0 {
 		return qs
 	}
-	return PackQueries
+	return QueryNames(limitsOf(cfg))
 }
 
 type fleetClient struct {

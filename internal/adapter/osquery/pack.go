@@ -18,10 +18,14 @@ const (
 	CeilingMaxFiles           = 10000
 )
 
-// Limits are the keystore crawl limits of one scan scope.
+// Limits are the keystore crawl limits and the extra Windows roots of one
+// scan scope.
 type Limits struct {
 	MaxFileBytes int64
 	MaxFiles     int
+	// ExtraWindowsRoots are customer-configured folders searched in addition
+	// to the default Windows roots; see ValidateWindowsRoot.
+	ExtraWindowsRoots []string
 }
 
 // DefaultLimits returns the default limits.
@@ -38,6 +42,14 @@ func (l Limits) Validate() error {
 	if l.MaxFiles < 1 || l.MaxFiles > CeilingMaxFiles {
 		return fmt.Errorf("keystore_max_files %d is outside 1..%d (the hard ceiling is %d; the default is %d)", l.MaxFiles, CeilingMaxFiles, CeilingMaxFiles, DefaultMaxFiles)
 	}
+	if len(l.ExtraWindowsRoots) > MaxExtraWindowsRoots {
+		return fmt.Errorf("windows_extra_roots has %d folders; at most %d are allowed", len(l.ExtraWindowsRoots), MaxExtraWindowsRoots)
+	}
+	for _, r := range l.ExtraWindowsRoots {
+		if err := ValidateWindowsRoot(r); err != nil {
+			return fmt.Errorf("windows_extra_roots: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -53,9 +65,6 @@ var (
 		"/etc/ssl/certs/%", "/etc/pki/ca-trust/extracted/%",
 		"/var/lib/docker/%", "/var/lib/containerd/%", "/var/lib/containers/%",
 		"/var/lib/kubelet/pods/%", "/run/containerd/%", "/opt/containerd/%",
-	}
-	windowsRoots = []string{
-		`C:\ProgramData\%%`, `C:\inetpub\%%`, `C:\Program Files\%%`, `C:\Program Files (x86)\%%`,
 	}
 	windowsExcluded = []string{
 		`C:\ProgramData\Docker\%`, `C:\ProgramData\containerd\%`, `C:\ProgramData\Microsoft\%`,
@@ -120,7 +129,7 @@ func Pack(l Limits) ([]PackQuery, error) {
 	}
 	mib := strconv.FormatInt(l.MaxFileBytes, 10)
 	caps := " Files up to " + mib + " bytes, at most " + strconv.Itoa(l.MaxFiles) + " files; never their contents."
-	return []PackQuery{
+	qs := []PackQuery{
 		{
 			QueryCertificatesWindows, "windows", "SELECT " + certColumns + ", sid, store_location, store, username, store_id FROM certificates;",
 			"Meiscope: certificate metadata from every Windows store, including per-user stores (no private keys, no certificate bodies).",
@@ -129,23 +138,33 @@ func Pack(l Limits) ([]PackQuery, error) {
 			QueryCertificatesPosix, "posix", "SELECT " + certColumns + " FROM certificates;",
 			"Meiscope: certificate metadata from the system trust stores and keychains (no private keys, no certificate bodies).",
 		},
-		{
-			QueryKeystoresWindows, "windows", keystoreQuery(windowsRoots, windowsExcluded, l),
-			"Meiscope: path, size, mtime, owner, mode and SHA-256 of keystore files (*.jks, *.p12, *.pfx, *.pem, *.kdb)." + caps + " Container data directories excluded.",
-		},
-		{
+	}
+	// One keystore query and one counts query per Windows root, so each root
+	// is reported (and timed) on its own.
+	depth := "to " + strconv.Itoa(MaxWindowsRootDepth) + " folder levels deep"
+	for _, r := range windowsRoots(l.ExtraWindowsRoots) {
+		pats := r.patterns()
+		qs = append(qs,
+			PackQuery{
+				WindowsKeystoreQuery(r.id), "windows", keystoreQuery(pats, windowsExcluded, l),
+				"Meiscope: path, size, mtime, owner, mode and SHA-256 of keystore files (*.jks, *.p12, *.pfx, *.pem, *.kdb) in " + r.base + ", " + depth + "." + caps + " Container data directories excluded.",
+			},
+			PackQuery{
+				WindowsCountsQuery(r.id), "windows", countsQuery(pats, windowsExcluded, l),
+				"Meiscope: counts of keystore files in " + r.base + " left out of the keystores query (excluded directories, over the size limit, over the file limit), so every run can report them.",
+			},
+		)
+	}
+	return append(qs,
+		PackQuery{
 			QueryKeystoresPosix, "posix", keystoreQuery(posixRoots, posixExcluded, l),
 			"Meiscope: path, size, mtime, owner, mode and SHA-256 of keystore files (*.jks, *.p12, *.pfx, *.pem, *.kdb)." + caps + " System trust-store directories (read by the certificates query) and container root filesystems excluded.",
 		},
-		{
-			QueryKeystoreCountsWindows, "windows", countsQuery(windowsRoots, windowsExcluded, l),
-			"Meiscope: counts of keystore files left out of the keystores query (excluded directories, over the size limit, over the file limit), so every run can report them.",
-		},
-		{
+		PackQuery{
 			QueryKeystoreCountsPosix, "posix", countsQuery(posixRoots, posixExcluded, l),
 			"Meiscope: counts of keystore files left out of the keystores query (excluded directories, over the size limit, over the file limit), so every run can report them.",
 		},
-	}, nil
+	), nil
 }
 
 // osqueryInterval is the daily snapshot interval of every pack query.

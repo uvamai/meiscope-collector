@@ -102,10 +102,15 @@ func count(obs []submit.Observation) map[string]int {
 	return m
 }
 
+// fleetFixtureQueries are the saved queries the recorded Fleet fixtures hold:
+// the certificate and keystore queries of one Linux and one Windows root.
+const fleetFixtureQueries = "meiscope_certificates_posix,meiscope_certificates_windows,meiscope_keystores_posix," +
+	"meiscope_keystores_windows_programdata_ssl,meiscope_keystore_counts_posix,meiscope_keystore_counts_windows_programdata_ssl"
+
 func fleetConfig() adapter.Config {
 	return adapter.Config{
 		Name: "fleet", Adapter: osquery.Name,
-		Settings:    map[string]string{"mode": "fleet", "url": "https://fleet.example.test", "per_page": "2", "rate_per_second": "100"},
+		Settings:    map[string]string{"mode": "fleet", "url": "https://fleet.example.test", "per_page": "2", "rate_per_second": "100", "queries": fleetFixtureQueries},
 		Credentials: map[string]string{"api_token": "fleet_token"},
 	}
 }
@@ -385,7 +390,7 @@ func TestDirect(t *testing.T) {
 	}
 	win := adapter.Config{Name: "direct-win", Adapter: osquery.Name, Settings: map[string]string{
 		"mode": "direct", "host": "web01.example.test",
-		"files": files("windows", "web01-meiscope_certificates_windows.json", "web01-meiscope_keystores_windows.json"),
+		"files": files("windows", "web01-meiscope_certificates_windows.json", "web01-meiscope_keystores_windows_programdata_ssl.json"),
 	}}
 	wr := syncOK(t, a, win, "")
 	if got := count(wr.Observations); !reflect.DeepEqual(got, map[string]int{"web01.example.test store": 3, "web01.example.test file": 1}) {
@@ -488,7 +493,7 @@ func TestPack(t *testing.T) {
 			t.Errorf("%s: interval %d snapshot %v", n, q.Interval, q.Snapshot)
 		}
 		wantPlat := "posix"
-		if strings.HasSuffix(n, "_windows") {
+		if strings.Contains(n, "_windows") {
 			wantPlat = "windows"
 		}
 		if q.Platform != wantPlat {

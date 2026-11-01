@@ -20,7 +20,7 @@
     },
     {
      "id": 14,
-     "name": "meiscope_keystores_windows",
+     "name": "meiscope_keystores_windows_programdata_ssl",
      "description": "",
      "query": "SELECT 1;",
      "team_id": null

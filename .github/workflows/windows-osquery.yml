@@ -73,8 +73,16 @@ jobs:
           $cert = New-SelfSignedCertificate -Subject "CN=web01.example.test" -DnsName "web01.example.test" `
             -CertStoreLocation "Cert:\LocalMachine\My" -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(30)
           "CERT_THUMBPRINT=$($cert.Thumbprint.ToLower())" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $dir = "C:\ProgramData\ExampleApp\tls"
+          # Inside the programdata_ssl root, at depth 2.
+          if (-not (Test-Path "C:\ProgramData\ssl")) { "CREATED_SSL_ROOT=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
+          $dir = "C:\ProgramData\ssl\meiscope-ci"
           New-Item -ItemType Directory -Force $dir | Out-Null
+          # Decoys that must NOT be reported: one at depth 5 (below the depth
+          # limit) and one outside every root.
+          $deep = "$dir\a\b\c\d"
+          New-Item -ItemType Directory -Force $deep, "C:\ProgramData\MeiscopeCiOutside" | Out-Null
+          Set-Content -Path "$deep\deep.pem" -Value "decoy" -Encoding ascii
+          Set-Content -Path "C:\ProgramData\MeiscopeCiOutside\outside.pem" -Value "decoy" -Encoding ascii
           $bytes = New-Object byte[] 24
           [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
           $pwText = [Convert]::ToBase64String($bytes)
@@ -91,7 +99,9 @@ jobs:
           go build -o "$env:RUNNER_TEMP\collector.exe" ./cmd/meiscope-collector
           $out = Join-Path $env:RUNNER_TEMP "osq-out"
           New-Item -ItemType Directory -Force $out | Out-Null
-          foreach ($q in "meiscope_certificates_windows", "meiscope_keystores_windows", "meiscope_keystore_counts_windows") {
+          $queries = & "$env:RUNNER_TEMP\collector.exe" adapter pack --list | ForEach-Object { ($_ -split "`t")[0] } | Where-Object { $_ -like "*_windows*" }
+          $elapsed = @{}
+          foreach ($q in $queries) {
             $sql = & "$env:RUNNER_TEMP\collector.exe" adapter pack --query $q
             if ($LASTEXITCODE -ne 0) { throw "adapter pack --query $q failed" }
             # The SQL goes in on stdin from a file, so nothing waits on the runner's
@@ -113,6 +123,7 @@ jobs:
               Write-Host "::endgroup::"
               throw "osqueryi did not finish $q within 180 s"
             }
+            $elapsed[$q] = $clock.Elapsed.TotalSeconds
             Write-Host "$q finished in $([int]$clock.Elapsed.TotalSeconds) s with exit code $($p.ExitCode)"
             if ($p.ExitCode -ne 0) {
               Get-Content $stderr -Tail 60 | Write-Host
@@ -120,6 +131,16 @@ jobs:
             }
           }
           Get-ChildItem $out -Filter *.json | Select-Object Name, Length
+          # Per-root report: files seen, skipped, and the time of both queries.
+          $rows = foreach ($q in $queries | Where-Object { $_ -like "meiscope_keystore_counts_windows_*" }) {
+            $root = $q.Substring("meiscope_keystore_counts_windows_".Length)
+            $c = (Get-Content (Join-Path $out "web01-$q.json") -Raw | ConvertFrom-Json) | Select-Object -First 1
+            $secs = $elapsed[$q] + $elapsed["meiscope_keystores_windows_$root"]
+            "| $root | $([int]$c.excluded + [int]$c.oversize + [int]$c.eligible) | $($c.oversize) | $([Math]::Max(0, [int]$c.eligible - 1000)) | $($c.excluded) | $([Math]::Round($secs, 1)) s |"
+          }
+          $table = @("| root | files seen | skipped oversize | skipped limit | skipped excluded | elapsed |", "|---|---|---|---|---|---|") + $rows
+          $table | Write-Host
+          $table | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "OSQUERY_WINDOWS_DIR=$out" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Assert the rows and their ingestion into the fake core
@@ -127,7 +148,8 @@ jobs:
         env:
           MEISCOPE_WINDOWS_OSQUERY_DIR: ${{ env.OSQUERY_WINDOWS_DIR }}
           MEISCOPE_WINDOWS_CERT_THUMBPRINT: ${{ env.CERT_THUMBPRINT }}
-          MEISCOPE_WINDOWS_PFX_PATH: C:\ProgramData\ExampleApp\tls\web01.pfx
+          MEISCOPE_WINDOWS_PFX_PATH: C:\ProgramData\ssl\meiscope-ci\web01.pfx
+          MEISCOPE_WINDOWS_DECOYS: C:\ProgramData\ssl\meiscope-ci\a\b\c\d\deep.pem,C:\ProgramData\MeiscopeCiOutside\outside.pem
           MEISCOPE_WINDOWS_PFX_PASSWORD: ${{ env.PFX_PASSWORD }}
         run: go test -tags devcredentials -count=1 -v -run TestWindowsPackRun ./internal/adapter/osquery/
 
@@ -136,4 +158,5 @@ jobs:
         shell: pwsh
         run: |
           if ($env:CERT_THUMBPRINT) { Remove-Item "Cert:\LocalMachine\My\$($env:CERT_THUMBPRINT)" -ErrorAction SilentlyContinue }
-          Remove-Item -Recurse -Force "C:\ProgramData\ExampleApp" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\ProgramData\ssl\meiscope-ci", "C:\ProgramData\MeiscopeCiOutside" -ErrorAction SilentlyContinue
+          if ($env:CREATED_SSL_ROOT -eq "1") { Remove-Item -Force "C:\ProgramData\ssl" -ErrorAction SilentlyContinue }
