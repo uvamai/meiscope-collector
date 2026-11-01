@@ -7,9 +7,10 @@
 # Windows queries through osqueryi as the runner's administrator, and checks
 # the rows and their ingestion into the fake core.
 #
-# STATUS: written and linted with actionlint, NOT YET EXECUTED. The
-# repository has no GitHub remote yet; the first run happens after the first
-# push. Actions are pinned by commit SHA (ADR-0015); the tag is in the comment.
+# STATUS: first run on 2026-11-01 (PR #3): the osqueryi call for the first
+# query never returned and the job hit its 30-minute limit. Each query now has
+# a 180 s limit and keeps its stderr so the next run names the cause.
+# Actions are pinned by commit SHA (ADR-0015); the tag is in the comment.
 name: windows-osquery
 
 on:
@@ -85,6 +86,7 @@ jobs:
 
       - name: Run the pack's Windows queries through osqueryi
         shell: pwsh
+        timeout-minutes: 15
         run: |
           go build -o "$env:RUNNER_TEMP\collector.exe" ./cmd/meiscope-collector
           $out = Join-Path $env:RUNNER_TEMP "osq-out"
@@ -92,11 +94,32 @@ jobs:
           foreach ($q in "meiscope_certificates_windows", "meiscope_keystores_windows", "meiscope_keystore_counts_windows") {
             $sql = & "$env:RUNNER_TEMP\collector.exe" adapter pack --query $q
             if ($LASTEXITCODE -ne 0) { throw "adapter pack --query $q failed" }
-            $json = & $env:OSQUERYI --json ($sql -join " ")
-            if ($LASTEXITCODE -ne 0) { throw "osqueryi failed for $q" }
-            Set-Content -Path (Join-Path $out "web01-$q.json") -Value $json -Encoding utf8
+            # The SQL goes in on stdin from a file, so nothing waits on the runner's
+            # console. Each query has its own time limit and keeps its stderr, so a
+            # slow or stuck query is named in the log instead of using the whole job.
+            $sqlFile = Join-Path $out "$q.sql"
+            $stdout = Join-Path $out "web01-$q.json"
+            $stderr = Join-Path $out "$q.stderr.txt"
+            Set-Content -Path $sqlFile -Value ($sql -join " ") -Encoding ascii
+            $clock = [System.Diagnostics.Stopwatch]::StartNew()
+            $p = Start-Process -FilePath $env:OSQUERYI -ArgumentList "--json", "--verbose" `
+              -RedirectStandardInput $sqlFile -RedirectStandardOutput $stdout -RedirectStandardError $stderr `
+              -NoNewWindow -PassThru
+            $done = $p.WaitForExit(180000)
+            if (-not $done) {
+              Stop-Process -Id $p.Id -Force
+              Write-Host "::group::osqueryi stderr for $q (killed after 180 s)"
+              Get-Content $stderr -Tail 60 | Write-Host
+              Write-Host "::endgroup::"
+              throw "osqueryi did not finish $q within 180 s"
+            }
+            Write-Host "$q finished in $([int]$clock.Elapsed.TotalSeconds) s with exit code $($p.ExitCode)"
+            if ($p.ExitCode -ne 0) {
+              Get-Content $stderr -Tail 60 | Write-Host
+              throw "osqueryi failed for $q"
+            }
           }
-          Get-ChildItem $out | Select-Object Name, Length
+          Get-ChildItem $out -Filter *.json | Select-Object Name, Length
           "OSQUERY_WINDOWS_DIR=$out" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Assert the rows and their ingestion into the fake core
