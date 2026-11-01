@@ -110,6 +110,10 @@ func TestVerifyRefuses(t *testing.T) {
 		"names wildcard":         {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"*.example.test"}} }), pub, ErrInvalid},
 		"names trailing dot":     {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"a.example.test."}} }), pub, ErrInvalid},
 		"names long label":       {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {strings.Repeat("a", 64) + ".test"}} }), pub, ErrInvalid},
+		"names ip literal":       {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"192.0.2.9"}} }), pub, ErrInvalid},
+		"names ipv6 literal":     {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"2001:db8::1"}} }), pub, ErrInvalid},
+		"names outside domains":  {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"www.unlisted.test"}} }), pub, ErrInvalid},
+		"names suffix trick":     {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"evilmail.example.test"}} }), pub, ErrInvalid},
 		"names too many":         {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": manyNames(MaxNamesPerIP + 1)} }), pub, ErrInvalid},
 	} {
 		if _, err := Verify(tc.s, tc.key, now); !errors.Is(err, tc.err) {
@@ -158,12 +162,13 @@ func manyNames(n int) []string {
 func TestNewFieldsAccepted(t *testing.T) {
 	pub, priv := keys(t)
 	s := validScope()
-	s.NamesByIP = map[string][]string{"192.0.2.5": {"www.example.test", "Portal.Example.Test", "_srv.example.test"}}
+	s.Hosts = []string{"example.test", "192.0.2.7"} // a domain and an address
+	s.NamesByIP = map[string][]string{"192.0.2.5": {"www.example.test", "Portal.Example.Test", "_srv.example.test", "example.test"}}
 	sc, err := Verify(sign(t, priv, s), pub, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sc.RescanIntervalSeconds != DefaultRescanInterval || len(sc.NamesByIP["192.0.2.5"]) != 3 {
+	if sc.RescanIntervalSeconds != DefaultRescanInterval || len(sc.NamesByIP["192.0.2.5"]) != 4 {
 		t.Fatalf("scope %+v", sc)
 	}
 	s.RescanIntervalSeconds = 300 // the demo profile
@@ -296,5 +301,21 @@ func TestTrackerRefusesReplay(t *testing.T) {
 	ro := &Tracker{path: filepath.Join(bad, "x.json"), seen: map[string]seenVersion{}} // parent is a file
 	if err := ro.Accept(v1, p1); err == nil {
 		t.Fatal("unwritable state accepted")
+	}
+}
+
+// With no domain in Hosts (CIDRs only), any valid name may be sent as SNI:
+// the connection still goes only to the in-scope address.
+func TestNamesWithoutDomains(t *testing.T) {
+	pub, priv := keys(t)
+	s := validScope()
+	s.Hosts = []string{"192.0.2.7"}
+	s.NamesByIP = map[string][]string{"192.0.2.5": {"intranet.corp.test"}}
+	if _, err := Verify(sign(t, priv, s), pub, now); err != nil {
+		t.Fatal(err)
+	}
+	s.NamesByIP = map[string][]string{"192.0.2.5": {"*.corp.test"}}
+	if _, err := Verify(sign(t, priv, s), pub, now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("wildcard without domains: %v", err)
 	}
 }

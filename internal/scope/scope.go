@@ -176,6 +176,7 @@ func (sc *Scope) validate() error {
 		}
 		prefixes = append(prefixes, p)
 	}
+	domains := scopeDomains(sc.Hosts)
 	for ip, names := range sc.NamesByIP {
 		a, err := netip.ParseAddr(ip)
 		if err != nil {
@@ -189,7 +190,10 @@ func (sc *Scope) validate() error {
 		}
 		for _, n := range names {
 			if !validName(n) {
-				return bad("names_by_ip %s: invalid name %q", a, n)
+				return bad("names_by_ip %s: invalid name %q (wildcards and IP literals are refused)", a, n)
+			}
+			if len(domains) > 0 && !underDomains(strings.ToLower(n), domains) {
+				return bad("names_by_ip %s: %q is outside the scope's domains", a, n)
 			}
 		}
 	}
@@ -264,10 +268,37 @@ func containsAddr(ps []netip.Prefix, a netip.Addr) bool {
 	return false
 }
 
+// scopeDomains returns the scope's host names (lower case); IP literals in
+// Hosts are addresses, not domains, and are left out.
+func scopeDomains(hosts []string) []string {
+	var out []string
+	for _, h := range hosts {
+		h = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(h), "."))
+		if _, err := netip.ParseAddr(h); err != nil && h != "" {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// underDomains reports whether n equals one of domains or is below one.
+func underDomains(n string, domains []string) bool {
+	for _, d := range domains {
+		if n == d || strings.HasSuffix(n, "."+d) {
+			return true
+		}
+	}
+	return false
+}
+
 // validName accepts a DNS name: labels of letters, digits, '-' and '_',
-// 1..63 bytes each, 253 bytes in all, no wildcard.
+// 1..63 bytes each, 253 bytes in all. Wildcards and IP literals are refused,
+// so SNI expansion can only ever name a host, never redirect the probe.
 func validName(n string) bool {
 	if n == "" || len(n) > 253 || strings.HasSuffix(n, ".") {
+		return false
+	}
+	if _, err := netip.ParseAddr(n); err == nil {
 		return false
 	}
 	for _, l := range strings.Split(n, ".") {
