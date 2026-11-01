@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -88,13 +89,31 @@ func (l *RFC6962Log) TreeSize(ctx context.Context) (uint64, error) {
 	return sth.TreeSize, nil
 }
 
+// logIndex converts a log index to the int64 the CT client takes, refusing
+// values above math.MaxInt64 instead of letting them wrap.
+func logIndex(v uint64) (int64, error) {
+	if v > math.MaxInt64 {
+		return 0, fmt.Errorf("log index %d is outside the supported range", v)
+	}
+	return int64(v), nil
+}
+
 // Entries reads get-entries for [start, end).
 func (l *RFC6962Log) Entries(ctx context.Context, start, end uint64) ([]LogEntry, error) {
 	if start >= end {
 		return nil, nil
 	}
 	last := min(end, start+l.batch) - 1
-	resp, err := l.lc.GetRawEntries(ctx, int64(start), int64(last)) //nolint:gosec // indices are far below 2^63
+	// Indices come from a remote log's tree size, so they are untrusted.
+	first, err := logIndex(start)
+	if err != nil {
+		return nil, fmt.Errorf("log %s: %w", l.url, err)
+	}
+	final, err := logIndex(last)
+	if err != nil {
+		return nil, fmt.Errorf("log %s: %w", l.url, err)
+	}
+	resp, err := l.lc.GetRawEntries(ctx, first, final)
 	if err != nil {
 		return nil, fmt.Errorf("log %s: get-entries %d-%d: %w", l.url, start, last, err)
 	}
@@ -107,7 +126,11 @@ func (l *RFC6962Log) Entries(ctx context.Context, start, end uint64) ([]LogEntry
 	out := make([]LogEntry, 0, len(resp.Entries))
 	for i := range resp.Entries {
 		idx := start + uint64(i)
-		raw, err := ctgo.RawLogEntryFromLeaf(int64(idx), &resp.Entries[i]) //nolint:gosec // see above
+		leafIdx, err := logIndex(idx)
+		if err != nil {
+			return nil, fmt.Errorf("log %s: %w", l.url, err)
+		}
+		raw, err := ctgo.RawLogEntryFromLeaf(leafIdx, &resp.Entries[i])
 		if err != nil {
 			return nil, fmt.Errorf("log %s: entry %d: %w", l.url, idx, err)
 		}

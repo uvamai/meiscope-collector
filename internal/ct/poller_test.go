@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -533,5 +534,24 @@ func TestLoadConfig(t *testing.T) {
 		}); err == nil {
 			t.Errorf("%s=%s accepted", k, v)
 		}
+	}
+}
+
+func TestRFC6962EntriesRefuseOutOfRangeIndex(t *testing.T) {
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer srv.Close()
+	l, err := NewRFC6962Log(srv.URL, nil, nil, clock.NewFake(t0), LogPoliteness, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A hostile log can report any tree size; indices above 2^63-1 must be refused, not wrapped.
+	for _, start := range []uint64{1 << 63, math.MaxUint64 - 1} {
+		if _, err := l.Entries(context.Background(), start, math.MaxUint64); err == nil {
+			t.Errorf("start %d: want an error, got nil", start)
+		}
+	}
+	if requests != 0 {
+		t.Errorf("the log was contacted %d times; want 0", requests)
 	}
 }
