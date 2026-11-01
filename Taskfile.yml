@@ -20,6 +20,11 @@ tasks:
     cmds:
       - task --list
 
+  hooks:
+    desc: Install the pre-push guard (refuses pushes to main and force-pushes) in this clone and its worktrees
+    cmds:
+      - sh scripts/git-hooks/install.sh
+
   build:
     desc: Build linux/amd64, linux/arm64 and windows/amd64 into bin/<os>_<arch>/, plus a host binary in bin/
     deps:
