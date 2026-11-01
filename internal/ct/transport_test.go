@@ -68,11 +68,11 @@ func TestCrtShBacksOffOn429(t *testing.T) {
 	srv := newScripted(t, clk,
 		answer{status: 429, retryAfter: "45"},
 		answer{status: 429},
-		answer{status: 200, body: `[{"id":1,"serial_number":"0a","name_value":"a.uvam.ai","common_name":"a.uvam.ai"}]`},
+		answer{status: 200, body: `[{"id":1,"serial_number":"0a","name_value":"a.owned.example","common_name":"a.owned.example"}]`},
 		answer{status: 200, body: pemCert},
 	)
 	c := NewCrtSh(srv.URL, nil, clk, CrtShPoliteness, "test")
-	rows, err := c.Search(context.Background(), "uvam.ai")
+	rows, err := c.Search(context.Background(), "owned.example")
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("rows %v, err %v", rows, err)
 	}
@@ -96,7 +96,7 @@ func TestCrtShGivesUpAfterRetries(t *testing.T) {
 	clk := clock.NewFake(t0)
 	srv := newScripted(t, clk, answer{status: 429})
 	c := NewCrtSh(srv.URL, nil, clk, CrtShPoliteness, "test")
-	_, err := c.Search(context.Background(), "uvam.ai")
+	_, err := c.Search(context.Background(), "owned.example")
 	if !IsStatus(err, 429) {
 		t.Fatalf("want a 429 StatusError, got %v", err)
 	}
@@ -115,7 +115,7 @@ func TestLongRetryAfterEndsTheAttempt(t *testing.T) {
 	// the poll does not hang for it (crt.sh is tried instead).
 	srv := newScripted(t, clk, answer{status: 429, retryAfter: "3600"})
 	c := NewCrtSh(srv.URL, nil, clk, CertSpotterPoliteness, "test")
-	_, err := c.Search(context.Background(), "uvam.ai")
+	_, err := c.Search(context.Background(), "owned.example")
 	var se *StatusError
 	if !errors.As(err, &se) || se.StatusCode != 429 || se.RetryAfter != time.Hour {
 		t.Fatalf("want 429 with retry after 1h, got %v", err)
@@ -133,7 +133,7 @@ func TestRetryAfterHTTPDateWithUTC(t *testing.T) {
 		answer{status: 200, body: "[]"},
 	)
 	c := NewCrtSh(srv.URL, nil, clk, LogPoliteness, "test")
-	if _, err := c.Search(context.Background(), "uvam.ai"); err != nil {
+	if _, err := c.Search(context.Background(), "owned.example"); err != nil {
 		t.Fatal(err)
 	}
 	if got := clk.Sleeps(); !reflect.DeepEqual(got, []time.Duration{20 * time.Second}) {

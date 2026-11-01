@@ -25,7 +25,7 @@ import (
 	"github.com/uvamai/meiscope-collector/internal/submit/submittest"
 )
 
-const csFixture = "testdata/certspotter/issuances-uvam.ai.json"
+const csFixture = "testdata/certspotter/issuances-owned.example.json"
 
 type staticCreds map[string]string
 
@@ -39,7 +39,7 @@ func (s staticCreds) Get(_ context.Context, ref string) (credential.Secret, erro
 func TestCertSpotterPagination(t *testing.T) {
 	srv := newFakeCertSpotter(t, csFixture, 1)
 	cs := NewCertSpotter(srv.URL, nil, clock.NewFake(t0), CertSpotterPoliteness, "test", nil)
-	items, cursor, err := cs.Issuances(context.Background(), "uvam.ai", "")
+	items, cursor, err := cs.Issuances(context.Background(), "owned.example", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestCertSpotterPagination(t *testing.T) {
 	}
 
 	// Resuming from the cursor asks for newer issuances only.
-	items, _, err = cs.Issuances(context.Background(), "uvam.ai", cursor)
+	items, _, err = cs.Issuances(context.Background(), "owned.example", cursor)
 	if err != nil || len(items) != 0 {
 		t.Fatalf("resume: %d items, %v", len(items), err)
 	}
@@ -73,7 +73,7 @@ func TestCertSpotterPagination(t *testing.T) {
 func TestCertSpotterKeyFromCredentialSource(t *testing.T) {
 	srv := newFakeCertSpotter(t, csFixture, 100)
 	cs := NewCertSpotter(srv.URL, nil, clock.NewFake(t0), CertSpotterPoliteness, "test", staticCreds{CertSpotterKeyRef: "k-1"})
-	if _, _, err := cs.Issuances(context.Background(), "uvam.ai", ""); err != nil {
+	if _, _, err := cs.Issuances(context.Background(), "owned.example", ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, r := range srv.reqs() {
@@ -92,18 +92,18 @@ func TestCertSpotterRejectsHashMismatch(t *testing.T) {
 	}))
 	defer srv.Close()
 	cs := NewCertSpotter(srv.URL, nil, clock.NewFake(t0), CertSpotterPoliteness, "test", nil)
-	if _, _, err := cs.Issuances(context.Background(), "uvam.ai", ""); err == nil || !strings.Contains(err.Error(), "cert_sha256") {
+	if _, _, err := cs.Issuances(context.Background(), "owned.example", ""); err == nil || !strings.Contains(err.Error(), "cert_sha256") {
 		t.Fatalf("want hash mismatch, got %v", err)
 	}
 }
 
-// TestPollDedupesByFingerprint: hive.uvam.ai's certificate is returned for
-// both owned domains (uvam.ai includes its subdomains) and is reported once;
+// TestPollDedupesByFingerprint: hive.owned.example's certificate is returned for
+// both owned domains (owned.example includes its subdomains) and is reported once;
 // after Commit, the same certificates are not reported again.
 func TestPollDedupesByFingerprint(t *testing.T) {
 	srv := newFakeCertSpotter(t, csFixture, 2)
 	clk := clock.NewFake(t0)
-	ds, _ := ParseDomains([]string{"uvam.ai", "hive.uvam.ai"})
+	ds, _ := ParseDomains([]string{"owned.example", "hive.owned.example"})
 	p := &Poller{Domains: ds, CertSpotter: NewCertSpotter(srv.URL, nil, clk, CertSpotterPoliteness, "test", nil), Clock: clk}
 	st := NewState()
 	c := p.Poll(context.Background(), st)
@@ -126,7 +126,7 @@ func TestPollDedupesByFingerprint(t *testing.T) {
 		}
 	}
 	c.Commit(st)
-	if st.CertSpotterAfter["uvam.ai"] != "17495069787" || len(st.Seen) != 4 {
+	if st.CertSpotterAfter["owned.example"] != "17495069787" || len(st.Seen) != 4 {
 		t.Fatalf("state %+v", st)
 	}
 	// Even from scratch (cursors lost), seen fingerprints are not resent.
@@ -139,13 +139,13 @@ func TestPollDedupesByFingerprint(t *testing.T) {
 
 func TestPollTailsRFC6962Log(t *testing.T) {
 	ca := newTestCA(t)
-	a := ca.leaf(t, 10, false, "a.uvam.ai")
-	b := ca.leaf(t, 11, true, "b.uvam.ai")
+	a := ca.leaf(t, 10, false, "a.owned.example")
+	b := ca.leaf(t, 11, true, "b.owned.example")
 	entries := []ctgo.LeafEntry{
 		fakeLogEntry(t, ca, ca.leaf(t, 9, false, "other.example.org"), false, 1000),
 		fakeLogEntry(t, ca, a, false, 2000),
 		fakeLogEntry(t, ca, b, true, 3000),
-		fakeLogEntry(t, ca, ca.leaf(t, 12, false, "uvam.ai.example.net"), false, 4000),
+		fakeLogEntry(t, ca, ca.leaf(t, 12, false, "owned.example.example.net"), false, 4000),
 		fakeLogEntry(t, ca, a, false, 5000), // the same certificate logged again
 	}
 	srv := fakeRFC6962(t, entries, 2)
@@ -154,7 +154,7 @@ func TestPollTailsRFC6962Log(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ds, _ := ParseDomains([]string{"uvam.ai"})
+	ds, _ := ParseDomains([]string{"owned.example"})
 	p := &Poller{Domains: ds, Logs: []Log{l}, Clock: clk}
 	st := NewState()
 	c := p.Poll(context.Background(), st)
@@ -192,10 +192,10 @@ func TestPollTailsRFC6962Log(t *testing.T) {
 
 func TestPollStartsNewLogAtHead(t *testing.T) {
 	ca := newTestCA(t)
-	srv := fakeRFC6962(t, []ctgo.LeafEntry{fakeLogEntry(t, ca, ca.leaf(t, 2, false, "a.uvam.ai"), false, 1)}, 10)
+	srv := fakeRFC6962(t, []ctgo.LeafEntry{fakeLogEntry(t, ca, ca.leaf(t, 2, false, "a.owned.example"), false, 1)}, 10)
 	clk := clock.NewFake(t0)
 	l, _ := NewRFC6962Log(srv.URL, nil, nil, clk, LogPoliteness, "test")
-	ds, _ := ParseDomains([]string{"uvam.ai"})
+	ds, _ := ParseDomains([]string{"owned.example"})
 	p := &Poller{Domains: ds, Logs: []Log{l}, Clock: clk, StartAtHead: true}
 	st := NewState()
 	c := p.Poll(context.Background(), st)
@@ -228,7 +228,7 @@ func TestPollTailsStaticCTLog(t *testing.T) {
 // download with one of the recorded Cert Spotter certificates (as PEM).
 func fakeCrtSh(t *testing.T, ders [][]byte) *httptest.Server {
 	t.Helper()
-	search := mustRead(t, "testdata/crtsh/search-uvam.ai.json")
+	search := mustRead(t, "testdata/crtsh/search-owned.example.json")
 	var n atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("d") != "" {
@@ -263,7 +263,7 @@ func TestCrtShOnlyAsFallback(t *testing.T) {
 	crt := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { crtHits.Add(1) }))
 	defer crt.Close()
 	clk := clock.NewFake(t0)
-	ds, _ := ParseDomains([]string{"uvam.ai"})
+	ds, _ := ParseDomains([]string{"owned.example"})
 	p := &Poller{Domains: ds, CertSpotter: NewCertSpotter(cs.URL, nil, clk, CertSpotterPoliteness, "test", nil), CrtSh: NewCrtSh(crt.URL, nil, clk, CrtShPoliteness, "test"), Clock: clk}
 	if c := p.Poll(context.Background(), NewState()); len(c.Found) != 4 || crtHits.Load() != 0 {
 		t.Fatalf("found %d, crt.sh hits %d", len(c.Found), crtHits.Load())
@@ -298,15 +298,15 @@ func TestCrtShOnlyAsFallback(t *testing.T) {
 
 func TestComputeCoverage(t *testing.T) {
 	var rows []CrtShEntry
-	if err := json.Unmarshal(mustRead(t, "testdata/crtsh/search-uvam.ai.json"), &rows); err != nil {
+	if err := json.Unmarshal(mustRead(t, "testdata/crtsh/search-owned.example.json"), &rows); err != nil {
 		t.Fatal(err)
 	}
 	srv := newFakeCertSpotter(t, csFixture, 100)
 	clk := clock.NewFake(t0)
-	ds, _ := ParseDomains([]string{"uvam.ai"})
+	ds, _ := ParseDomains([]string{"owned.example"})
 	p := &Poller{Domains: ds, CertSpotter: NewCertSpotter(srv.URL, nil, clk, CertSpotterPoliteness, "test", nil), Clock: clk}
 	c := p.Poll(context.Background(), NewState())
-	cov := ComputeCoverage("uvam.ai", c.Found, rows)
+	cov := ComputeCoverage("owned.example", c.Found, rows)
 	// The recorded crt.sh answer lists 10 unexpired certificates (17 rows:
 	// precertificate and certificate rows share a serial); two of the four
 	// recorded Cert Spotter issuances are among them (serials compare equal
@@ -317,7 +317,7 @@ func TestComputeCoverage(t *testing.T) {
 	if cov.CertPercent() != 20 || cov.NamePercent() != 50 {
 		t.Fatalf("percentages %.1f %.1f", cov.CertPercent(), cov.NamePercent())
 	}
-	full := ComputeCoverage("uvam.ai", nil, nil)
+	full := ComputeCoverage("owned.example", nil, nil)
 	if full.CertPercent() != 100 {
 		t.Fatal("an empty baseline is fully covered")
 	}
@@ -336,8 +336,8 @@ func TestComputeCoverage(t *testing.T) {
 func TestObservationsSubmittedToFakeCore(t *testing.T) {
 	ca := newTestCA(t)
 	cs := newFakeCertSpotter(t, csFixture, 2)
-	newCert := ca.leaf(t, 20, false, "new.uvam.ai")
-	preCert := ca.leaf(t, 21, true, "pre.uvam.ai")
+	newCert := ca.leaf(t, 20, false, "new.owned.example")
+	preCert := ca.leaf(t, 21, true, "pre.owned.example")
 	log := fakeRFC6962(t, []ctgo.LeafEntry{
 		fakeLogEntry(t, ca, newCert, false, 1),
 		fakeLogEntry(t, ca, preCert, true, 2),
@@ -353,7 +353,7 @@ func TestObservationsSubmittedToFakeCore(t *testing.T) {
 	clk := clock.NewFake(t0)
 	rl, _ := NewRFC6962Log(log.URL, nil, nil, clk, LogPoliteness, "test")
 	staticLogID := sha256.Sum256([]byte("static log key"))
-	ds, _ := ParseDomains([]string{"uvam.ai", "flowers-to-the-world.com"})
+	ds, _ := ParseDomains([]string{"owned.example", "flowers-to-the-world.com"})
 	p := &Poller{
 		Domains:     ds,
 		CertSpotter: NewCertSpotter(cs.URL, nil, clk, CertSpotterPoliteness, "test", nil),
@@ -366,7 +366,7 @@ func TestObservationsSubmittedToFakeCore(t *testing.T) {
 		t.Fatal(cycle.Errors)
 	}
 	// crt.sh is a fallback only: a second poller without Cert Spotter uses it.
-	fallback := &Poller{Domains: Domains{"uvam.ai"}, CrtSh: NewCrtSh(crt.URL, nil, clk, CrtShPoliteness, "test"), MaxCrtShFetches: 2, Clock: clk}
+	fallback := &Poller{Domains: Domains{"owned.example"}, CrtSh: NewCrtSh(crt.URL, nil, clk, CrtShPoliteness, "test"), MaxCrtShFetches: 2, Clock: clk}
 	crtCycle := fallback.Poll(context.Background(), NewState())
 	if len(crtCycle.Errors) != 0 {
 		t.Fatal(crtCycle.Errors)
@@ -465,19 +465,19 @@ func TestEndpointTarget(t *testing.T) {
 }
 
 func TestDomains(t *testing.T) {
-	ds, err := ParseDomains([]string{"Uvam.AI.", " meiscope.com", "uvam.ai", ""})
-	if err != nil || !reflect.DeepEqual(ds, Domains{"uvam.ai", "meiscope.com"}) {
+	ds, err := ParseDomains([]string{"Owned.EXAMPLE.", " partner.example", "owned.example", ""})
+	if err != nil || !reflect.DeepEqual(ds, Domains{"owned.example", "partner.example"}) {
 		t.Fatalf("%v %v", ds, err)
 	}
 	for name, want := range map[string]string{
-		"uvam.ai": "uvam.ai", "WWW.uvam.ai": "uvam.ai", "*.x.uvam.ai": "uvam.ai",
-		"notuvam.ai": "", "uvam.ai.evil.example": "", "meiscope.com": "meiscope.com",
+		"owned.example": "owned.example", "WWW.owned.example": "owned.example", "*.x.owned.example": "owned.example",
+		"notowned.example": "", "owned.example.evil.example": "", "partner.example": "partner.example",
 	} {
 		if got := ds.Match(name); got != want {
 			t.Errorf("Match(%q) = %q, want %q", name, got, want)
 		}
 	}
-	for _, bad := range []string{"*.uvam.ai", "localhost", "a b.com", "https://x.com"} {
+	for _, bad := range []string{"*.owned.example", "localhost", "a b.com", "https://x.com"} {
 		if _, err := ParseDomains([]string{bad}); err == nil {
 			t.Errorf("ParseDomains(%q) accepted", bad)
 		}
@@ -490,7 +490,7 @@ func TestStateRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.CertSpotterAfter["uvam.ai"] = "42"
+	st.CertSpotterAfter["owned.example"] = "42"
 	st.LogNext["https://log.example/"] = 7
 	st.Seen["ab"] = t0
 	st.Seen["old"] = t0.Add(-500 * 24 * time.Hour)
@@ -502,14 +502,14 @@ func TestStateRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.CertSpotterAfter["uvam.ai"] != "42" || got.LogNext["https://log.example/"] != 7 || len(got.Seen) != 1 {
+	if got.CertSpotterAfter["owned.example"] != "42" || got.LogNext["https://log.example/"] != 7 || len(got.Seen) != 1 {
 		t.Fatalf("state %+v", got)
 	}
 }
 
 func TestLoadConfig(t *testing.T) {
 	env := map[string]string{
-		"MEISCOPE_CT_DOMAINS":        "uvam.ai, meiscope.com",
+		"MEISCOPE_CT_DOMAINS":        "owned.example, partner.example",
 		"MEISCOPE_CT_LOGS":           "rfc6962=https://ct.example/log/,static=https://mon.example/2026h2/",
 		"MEISCOPE_CT_CRTSH_FALLBACK": "false",
 		"MEISCOPE_CT_CONTACT":        "ops@example.com",

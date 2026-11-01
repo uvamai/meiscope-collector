@@ -144,3 +144,13 @@ jobs:
           persist-credentials: false
       # The public collector tracks no keystore or key file at all.
       - run: .github/scripts/check-tracked-keystores.sh
+
+  no-uvam-ai:
+    name: no UVAMAI hostname
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The product uses meiscope.cloud; tests use reserved names (WP0.10).
+      - run: sh .github/scripts/check-no-uvam-ai.sh

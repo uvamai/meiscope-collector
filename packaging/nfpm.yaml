@@ -7,8 +7,7 @@ version: ${VERSION}
 version_schema: semver
 section: net
 priority: optional
-# PLACEHOLDER contact address (.invalid): replace when the project mailbox exists.
-maintainer: UVAMAI <maintainers@uvamai.invalid>
+maintainer: Meiscope <hello@meiscope.cloud>
 description: |
   Meiscope collector: outbound-only TLS probe and adapter runner.
   Sends public certificates and their bindings to the Meiscope core;

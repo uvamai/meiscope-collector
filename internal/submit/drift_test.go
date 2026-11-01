@@ -64,7 +64,7 @@ func TestContractCurrentObservationShapes(t *testing.T) {
 
 func TestContractOwnedDomains(t *testing.T) {
 	core := contractCore(t)
-	core.SetDomains("example.test", "uvam.ai")
+	core.SetDomains("example.test", "owned.example")
 	cl, _ := submit.New(core.URL, core.Client())
 	got, err := cl.OwnedDomains(context.Background())
 	if err != nil || len(got) != 2 {

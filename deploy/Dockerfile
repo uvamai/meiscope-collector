@@ -25,6 +25,8 @@ RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 LABEL org.opencontainers.image.source="https://github.com/uvamai/meiscope-collector" \
       org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.url="https://meiscope.cloud" \
+      org.opencontainers.image.authors="hello@meiscope.cloud" \
       org.opencontainers.image.title="meiscope-collector"
 COPY --from=build /out/meiscope-collector /usr/bin/meiscope-collector
 # Inside a container the health endpoint listens on all interfaces so the

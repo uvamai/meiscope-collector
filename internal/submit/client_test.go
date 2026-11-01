@@ -55,7 +55,7 @@ func TestSubmitBatchesOfAtMost1000(t *testing.T) {
 	}
 	// A probe observation in the same batch validates too.
 	obs[7] = submit.Observation{
-		Target: submit.Target{Kind: submit.KindHostPortSNI, Host: "10.0.0.1", Port: 443, SNI: "a.uvam.ai"},
+		Target: submit.Target{Kind: submit.KindHostPortSNI, Host: "10.0.0.1", Port: 443, SNI: "a.owned.example"},
 		Method: submit.MethodProbe, ObservedAt: t0, Outcome: submit.OutcomeTimeout,
 	}
 	res, err := cl.Submit(context.Background(), obs)
@@ -140,7 +140,7 @@ func TestFakeCoreRejectsUnknownFields(t *testing.T) {
 		"target":             strings.Replace(valid, `"port":443`, `"port":443,"fingerprint":"ab"`, 1),
 		"ct_entry":           strings.Replace(valid, `"entry_index":7`, `"entry_index":7,"leaf_input":"AAA="`, 1),
 		"ct_entry log_url":   strings.Replace(valid, `"entry_index":7`, `"entry_index":7,"log_url":"https://ct.example/"`, 1),
-		"ct_entry dns_names": strings.Replace(valid, `"entry_index":7`, `"entry_index":7,"dns_names":["a.uvam.ai"]`, 1),
+		"ct_entry dns_names": strings.Replace(valid, `"entry_index":7`, `"entry_index":7,"dns_names":["a.owned.example"]`, 1),
 		"batch":              strings.Replace(valid, `{"observations"`, `{"tenant":"t","observations"`, 1),
 	} {
 		before := len(core.Errors())
@@ -165,7 +165,7 @@ func TestFakeCoreAppliesContractRules(t *testing.T) {
 	probeCTLog := ctObservation(1)
 	probeCTLog.Method, probeCTLog.CTEntry = submit.MethodProbe, nil
 	withSNI := ctObservation(2)
-	withSNI.Target.SNI = "a.uvam.ai"
+	withSNI.Target.SNI = "a.owned.example"
 	probeWithEntry := submit.Observation{
 		Target: submit.Target{Kind: submit.KindHostPortSNI, Host: "10.0.0.1", Port: 443},
 		Method: submit.MethodProbe, ObservedAt: t0, Outcome: submit.OutcomeTimeout,
@@ -189,12 +189,12 @@ func TestFakeCoreAppliesContractRules(t *testing.T) {
 
 func TestOwnedDomains(t *testing.T) {
 	core := newCore(t)
-	core.SetDomains("example.com", "uvam.ai")
+	core.SetDomains("example.com", "owned.example")
 	core.FailNext(http.StatusServiceUnavailable)
 	clk := clock.NewFake(t0)
 	cl, _ := submit.New(core.URL, core.Client(), submit.WithClock(clk))
 	got, err := cl.OwnedDomains(context.Background())
-	if err != nil || !reflect.DeepEqual(got, []string{"example.com", "uvam.ai"}) {
+	if err != nil || !reflect.DeepEqual(got, []string{"example.com", "owned.example"}) {
 		t.Fatalf("domains %v, %v", got, err)
 	}
 	if len(clk.Sleeps()) != 1 {

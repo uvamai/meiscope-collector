@@ -7,7 +7,8 @@ product's first requirement.
 
 Please **do not open a public issue.** Report privately through GitHub's
 private vulnerability reporting: the **Security** tab of
-`github.com/uvamai/meiscope-collector`, then **Report a vulnerability**.
+`github.com/uvamai/meiscope-collector`, then **Report a vulnerability**, or
+email security@meiscope.cloud.
 
 Include the affected version (`meiscope-collector version`), the platform,
 and steps to reproduce. We acknowledge reports within 3 business days and

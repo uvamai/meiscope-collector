@@ -1,0 +1,75 @@
+[
+ {
+  "id": "17283841456",
+  "tbs_sha256": "101a4fe616a84b985a14af7b696a098c526d0a8633b065dfe14de71d76e66232",
+  "cert_sha256": "2f306846ff878c0e2426b579bd688b62e7f6c0ee4fafbb2af75b611014ec0934",
+  "dns_names": [
+   "mirai.owned.example"
+  ],
+  "pubkey_sha256": "291230705c831ca5878d22cd5721200384188c8e70bc3be232de52a09b234f62",
+  "issuer": {
+   "friendly_name": "Meiscope fixture CA (synthetic)",
+   "pubkey_sha256": "a499e2f5b9ed10151e841853529ae01e4ac91b4fa3841a84cfe1c4930cfac9c1",
+   "name": "O=Meiscope test data, CN=Fixture CA 2 (synthetic)"
+  },
+  "not_before": "2026-09-19T18:56:57Z",
+  "not_after": "2026-12-18T18:56:56Z",
+  "revoked": false,
+  "cert_der": "MIIBhjCCATigAwIBAgISBn5QMUrjgygpHNrI1VAczipbMAUGAytlcDBAMRswGQYDVQQKExJNZWlzY29wZSB0ZXN0IGRhdGExITAfBgNVBAMTGEZpeHR1cmUgQ0EgMiAoc3ludGhldGljKTAeFw0yNjA5MTkxODU2NTdaFw0yNjEyMTgxODU2NTZaMB4xHDAaBgNVBAMTE21pcmFpLm93bmVkLmV4YW1wbGUwKjAFBgMrZXADIQAHpzL4Y/ucM8py12NU5KgIgwZQCt5Wc/oWqndtgwx0C6NoMGYwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMB8GA1UdIwQYMBaAFEaUTiDhhcyaLuKV31n+7TCgKWljMB4GA1UdEQQXMBWCE21pcmFpLm93bmVkLmV4YW1wbGUwBQYDK2VwA0EAdZXPWw58NeVzi3f04oT0e2zENW0ftBDN9uMLqBkMvZFSDmaHvvjMF4VQjnspXPLl/vt5hNlqtH6DBgpCcH0HCQ=="
+ },
+ {
+  "id": "17389535029",
+  "tbs_sha256": "d654aa2d00271ce87eb68b6a2a46d670490951ce7e3619968f5268c3ffc2c5bb",
+  "cert_sha256": "7f01f6c14b5223c896ec5e6db9f11826dd7ba8ba8ecb2a5021c724c81c1b36ed",
+  "dns_names": [
+   "owned.example",
+   "www.owned.example"
+  ],
+  "pubkey_sha256": "c2302f0ff61a6996bdb2dba3aaeb09788a96973464efee4d6c32329930699409",
+  "issuer": {
+   "friendly_name": "Meiscope fixture CA (synthetic)",
+   "pubkey_sha256": "a499e2f5b9ed10151e841853529ae01e4ac91b4fa3841a84cfe1c4930cfac9c1",
+   "name": "O=Meiscope test data, CN=Fixture CA 2 (synthetic)"
+  },
+  "not_before": "2026-09-24T15:37:12Z",
+  "not_after": "2026-12-23T15:37:11Z",
+  "revoked": false,
+  "cert_der": "MIIBjTCCAT+gAwIBAgISBWAjKAFUsh5d/FO66iJpvquPMAUGAytlcDBAMRswGQYDVQQKExJNZWlzY29wZSB0ZXN0IGRhdGExITAfBgNVBAMTGEZpeHR1cmUgQ0EgMiAoc3ludGhldGljKTAeFw0yNjA5MjQxNTM3MTJaFw0yNjEyMjMxNTM3MTFaMBgxFjAUBgNVBAMTDW93bmVkLmV4YW1wbGUwKjAFBgMrZXADIQAho7sJcExrAu3kU72eVEI9ZDR33u6hfIavuLvL0uzLbqN1MHMwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMB8GA1UdIwQYMBaAFEaUTiDhhcyaLuKV31n+7TCgKWljMCsGA1UdEQQkMCKCDW93bmVkLmV4YW1wbGWCEXd3dy5vd25lZC5leGFtcGxlMAUGAytlcANBAD+rYWpQ5smHWQ8Iai0yuGpmmHr1hFA+PglgPSz50a05vi+cRaQsRpcc8Uu4R28+a2URX1SMsjNmNkETGws3Zwg="
+ },
+ {
+  "id": "17404892526",
+  "tbs_sha256": "e4dc9d96c61b2e1da1653a57769257dfbf07d989f61da43cef85918ae4a4b6db",
+  "cert_sha256": "95ac4e76891387794714857c6157a5869e09d1a454e0af359f9887128d79292e",
+  "dns_names": [
+   "hive.owned.example"
+  ],
+  "pubkey_sha256": "26e9690032cc7f15171c6f26aaaf8527f92165abf875a653155bcadfb811d2ca",
+  "issuer": {
+   "friendly_name": "Meiscope fixture CA (synthetic)",
+   "pubkey_sha256": "a8e4512d6e147adb2e31f695515c9565427cc43f28138573aeca09a2941cea27",
+   "name": "O=Meiscope test data, CN=Fixture CA 1 (synthetic)"
+  },
+  "not_before": "2026-09-25T10:12:32Z",
+  "not_after": "2026-12-24T10:12:31Z",
+  "revoked": false,
+  "cert_der": "MIIBhDCCATagAwIBAgISBTVQS2Af9ICbdndHWOcqnXhgMAUGAytlcDBAMRswGQYDVQQKExJNZWlzY29wZSB0ZXN0IGRhdGExITAfBgNVBAMTGEZpeHR1cmUgQ0EgMSAoc3ludGhldGljKTAeFw0yNjA5MjUxMDEyMzJaFw0yNjEyMjQxMDEyMzFaMB0xGzAZBgNVBAMTEmhpdmUub3duZWQuZXhhbXBsZTAqMAUGAytlcAMhAGhypca+ZKh4YFhggkzkcIeRhnEC753h1dJTYbjX/h8Eo2cwZTAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwEwHwYDVR0jBBgwFoAUIngEzfdXgohi7Z9LMe0bTbbfDgIwHQYDVR0RBBYwFIISaGl2ZS5vd25lZC5leGFtcGxlMAUGAytlcANBAF1qwd5ksm2oKds76c+xn4no9vF9ei1hyy8R+fNmk6elqfH1sZAMCxruRLPTsSqsD0qvcsiQoAaW4juRIWD+GwI="
+ },
+ {
+  "id": "17495069787",
+  "tbs_sha256": "ded0b0bb58eb34bfe20a1329b55fb70f05c62752bc62fad8bf54632cef8d6321",
+  "cert_sha256": "83ebbddb220d421bee99369289e2b3abdabbeae77385a904f08068252884bbf6",
+  "dns_names": [
+   "crm.owned.example"
+  ],
+  "pubkey_sha256": "67445d6963062ef96f775bbece0727065bbb7f7853403f6c8d4eac72dafcd325",
+  "issuer": {
+   "friendly_name": "Meiscope fixture CA (synthetic)",
+   "pubkey_sha256": "a8e4512d6e147adb2e31f695515c9565427cc43f28138573aeca09a2941cea27",
+   "name": "O=Meiscope test data, CN=Fixture CA 1 (synthetic)"
+  },
+  "not_before": "2026-09-30T05:55:12Z",
+  "not_after": "2026-12-29T05:55:11Z",
+  "revoked": false,
+  "cert_der": "MIIBgjCCATSgAwIBAgISBa6q1OjwtwORuuW9obYauM+KMAUGAytlcDBAMRswGQYDVQQKExJNZWlzY29wZSB0ZXN0IGRhdGExITAfBgNVBAMTGEZpeHR1cmUgQ0EgMSAoc3ludGhldGljKTAeFw0yNjA5MzAwNTU1MTJaFw0yNjEyMjkwNTU1MTFaMBwxGjAYBgNVBAMTEWNybS5vd25lZC5leGFtcGxlMCowBQYDK2VwAyEAyOq1Sz9+p8NNUy8DOA72PBXxy/iGaIGY41oG9Sj0GiejZjBkMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDATAfBgNVHSMEGDAWgBQieATN91eCiGLtn0sx7RtNtt8OAjAcBgNVHREEFTATghFjcm0ub3duZWQuZXhhbXBsZTAFBgMrZXADQQD+XwcPK3bbUirg4SMjfIoPq2DxzE2qFXpkYMKdSHQ0qmOJPQOGa3wjuJDolpa2khnRHA/hvWN2DGljXjyXU9AO"
+ }
+]
