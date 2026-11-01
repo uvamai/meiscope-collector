@@ -4,7 +4,8 @@ import "time"
 
 // Wire types of the collector API (/collector/v1), hand-written from
 // api/collector.yaml, which is vendored byte for byte from the core (core
-// contract 0.4.0). Field names and JSON tags follow the schema; the fake
+// contract 0.4.0, plus the PROPOSED 0.5.0 adapter additions marked below,
+// which the core has not adopted yet). Field names and JSON tags follow the schema; the fake
 // core in submittest validates every request against the YAML.
 
 // Method values (schema Observation.method).
@@ -31,6 +32,13 @@ const (
 	// outcome cert_seen, no SNI). The core makes every certificate read
 	// from it its own target.
 	KindCTLog = "ct_log"
+
+	// KindStore is a certificate store on a host, read by an adapter
+	// (PROPOSED in contract 0.5.0, not yet adopted by the core).
+	KindStore = "store"
+	// KindFile is a keystore or certificate file on a host, read by an
+	// adapter (PROPOSED in contract 0.5.0).
+	KindFile = "file"
 )
 
 // MaxBatch is the largest batch the core accepts (ObservationBatch.maxItems).
@@ -53,6 +61,9 @@ type Observation struct {
 	ServedChain [][]byte   `json:"served_chain,omitempty"`
 	TLS         *TLSParams `json:"tls,omitempty"`
 	CTEntry     *CTEntry   `json:"ct_entry,omitempty"`
+	// Adapter is adapter evidence (PROPOSED in contract 0.5.0); method
+	// adapter only.
+	Adapter *AdapterEvidence `json:"adapter,omitempty"`
 }
 
 // Target is the locator of an observation.
@@ -61,8 +72,14 @@ type Target struct {
 	// Host is the endpoint connected to; for ct_log the API host of the log
 	// or service.
 	Host string `json:"host"`
-	Port int    `json:"port"`
+	// Port is required for host_port_sni and ct_log and absent for store
+	// and file (0 is never a valid port, so omitempty loses nothing).
+	Port int    `json:"port,omitempty"`
 	SNI  string `json:"sni,omitempty"`
+	// Store is the store locator of a store target (PROPOSED 0.5.0).
+	Store string `json:"store,omitempty"`
+	// Path is the file path of a file target (PROPOSED 0.5.0).
+	Path string `json:"path,omitempty"`
 }
 
 // TLSParams are negotiated connection parameters (probe observations).
@@ -117,4 +134,78 @@ type Problem struct {
 // OwnedDomainList is the answer of GET /collector/v1/owned-domains.
 type OwnedDomainList struct {
 	Domains []string `json:"domains"`
+}
+
+// Custody.key_custody values (PROPOSED 0.5.0).
+const (
+	KeyPresent = "present"
+	KeyAbsent  = "absent"
+	KeyUnknown = "unknown"
+)
+
+// AdapterEvidence is what an adapter read from a system the customer
+// already runs (schema AdapterEvidence, PROPOSED in contract 0.5.0).
+type AdapterEvidence struct {
+	Source      string               `json:"source"`
+	Certificate *CertificateMetadata `json:"certificate,omitempty"`
+	File        *FileDigest          `json:"file,omitempty"`
+	Custody     *Custody             `json:"custody,omitempty"`
+	Findings    []Finding            `json:"findings,omitempty"`
+}
+
+// Finding codes (PROPOSED 0.5.0).
+const (
+	// FindingStoreEncryptedNotRead marks a password-protected keystore whose
+	// content the collector does not read. It never guesses passwords.
+	FindingStoreEncryptedNotRead = "store_encrypted_not_read"
+)
+
+// Finding is something an adapter could not do and reports instead of
+// skipping it silently (schema Finding, PROPOSED 0.5.0).
+type Finding struct {
+	Code string `json:"code"`
+}
+
+// Store types of FileDigest.store_type (PROPOSED 0.5.0).
+const (
+	StoreJKS    = "jks"
+	StorePKCS12 = "pkcs12"
+	StorePEM    = "pem"
+	StoreNSS    = "nss"
+	StoreOther  = "other"
+)
+
+// CertificateMetadata holds certificate fields as the source reports them
+// (schema CertificateMetadata, PROPOSED 0.5.0). It never holds key material.
+type CertificateMetadata struct {
+	SHA1             string     `json:"sha1"`
+	Serial           string     `json:"serial,omitempty"`
+	Subject          string     `json:"subject,omitempty"`
+	Issuer           string     `json:"issuer,omitempty"`
+	CommonName       string     `json:"common_name,omitempty"`
+	NotBefore        *time.Time `json:"not_before,omitempty"`
+	NotAfter         *time.Time `json:"not_after,omitempty"`
+	CA               *bool      `json:"ca,omitempty"`
+	SelfSigned       *bool      `json:"self_signed,omitempty"`
+	KeyAlgorithm     string     `json:"key_algorithm,omitempty"`
+	KeyStrength      string     `json:"key_strength,omitempty"`
+	SigningAlgorithm string     `json:"signing_algorithm,omitempty"`
+	SubjectKeyID     string     `json:"subject_key_id,omitempty"`
+	AuthorityKeyID   string     `json:"authority_key_id,omitempty"`
+}
+
+// FileDigest is a file's digest and size, never its contents (schema
+// FileDigest, PROPOSED 0.5.0).
+type FileDigest struct {
+	SHA256      string     `json:"sha256"`
+	Size        *int64     `json:"size,omitempty"`
+	MTime       *time.Time `json:"mtime,omitempty"`
+	Owner       string     `json:"owner,omitempty"`
+	Permissions string     `json:"permissions,omitempty"`
+	StoreType   string     `json:"store_type,omitempty"`
+}
+
+// Custody holds custody flags (schema Custody, PROPOSED 0.5.0).
+type Custody struct {
+	KeyCustody string `json:"key_custody"`
 }

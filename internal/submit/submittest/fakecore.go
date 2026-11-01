@@ -7,15 +7,35 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 )
 
 // SpecPath returns the path of the vendored api/collector.yaml.
+//
+// When MEISCOPE_CONTRACT is set it names another contract file instead, which
+// is how "task contract:diff" runs the tests against a core's file.
 func SpecPath() string {
+	if p := os.Getenv("MEISCOPE_CONTRACT"); p != "" {
+		return p
+	}
+	return VendoredSpecPath()
+}
+
+// VendoredSpecPath returns the path of the vendored api/collector.yaml,
+// byte-identical to the core's contract 0.4.0.
+func VendoredSpecPath() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "collector.yaml")
+}
+
+// ProposedSpecPath returns the path of the proposed contract 0.5.0, which the
+// core has not adopted (api/proposed).
+func ProposedSpecPath() string {
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "proposed", "collector-0.5.0-proposed.yaml")
 }
 
 // Core is a fake core. Each observations request must be gzip JSON that
@@ -43,8 +63,15 @@ type Rejection struct {
 }
 
 // NewCore starts a fake core validating against the vendored spec.
-func NewCore() (*Core, error) {
-	spec, err := LoadSpec(SpecPath())
+func NewCore() (*Core, error) { return NewCoreWithSpec(SpecPath()) }
+
+// NewProposedCore starts a fake core for the proposed contract 0.5.0.
+func NewProposedCore() (*Core, error) { return NewCoreWithSpec(ProposedSpecPath()) }
+
+// NewCoreWithSpec starts a fake core validating against the contract file at
+// path.
+func NewCoreWithSpec(path string) (*Core, error) {
+	spec, err := LoadSpec(path)
 	if err != nil {
 		return nil, err
 	}
@@ -161,8 +188,11 @@ func (c *Core) handle(w http.ResponseWriter, r *http.Request) {
 // observation holds the fields the prose rules of collector.yaml refer to.
 type observation struct {
 	Target struct {
-		Kind string `json:"kind"`
-		SNI  string `json:"sni"`
+		Kind  string `json:"kind"`
+		SNI   string `json:"sni"`
+		Port  int    `json:"port"`
+		Store string `json:"store"`
+		Path  string `json:"path"`
 	} `json:"target"`
 	Method      string   `json:"method"`
 	Outcome     string   `json:"outcome"`
@@ -170,6 +200,10 @@ type observation struct {
 	CTEntry     *struct {
 		LogID string `json:"log_id"`
 	} `json:"ct_entry"`
+	Adapter *struct {
+		Certificate *struct{} `json:"certificate"`
+		File        *struct{} `json:"file"`
+	} `json:"adapter"`
 }
 
 // rejection applies the rules collector.yaml states in its descriptions
@@ -187,8 +221,28 @@ func rejection(o observation) (code, msg string) {
 		return "invalid_ct_entry", "ct_entry is allowed with method ct only"
 	case o.CTEntry != nil && o.CTEntry.LogID != "" && !is32Bytes(o.CTEntry.LogID):
 		return "invalid_ct_entry", "ct_entry log_id must be the base64 of a 32-byte log ID"
-	case (o.Outcome == "cert_seen") != (len(o.ServedChain) > 0):
+	case (o.Target.Kind == "store" || o.Target.Kind == "file") && o.Method != "adapter":
+		return "invalid_target", "store and file targets are read by method adapter only (proposed 0.5.0)"
+	case (o.Target.Kind == "store" || o.Target.Kind == "file") && o.Target.Port != 0:
+		return "invalid_target", "store and file targets have no port (proposed 0.5.0)"
+	case (o.Target.Kind == "store" || o.Target.Kind == "file") && o.Target.SNI != "":
+		return "invalid_target", "store and file targets have no sni (proposed 0.5.0)"
+	case o.Target.Kind == "store" && o.Target.Store == "":
+		return "invalid_target", "a store target needs store (proposed 0.5.0)"
+	case o.Target.Kind == "file" && o.Target.Path == "":
+		return "invalid_target", "a file target needs path (proposed 0.5.0)"
+	case o.Adapter != nil && o.Method != "adapter":
+		return "invalid_target", "adapter evidence is allowed with method adapter only (proposed 0.5.0)"
+	case o.Method == "adapter" && o.Adapter == nil:
+		return "invalid_target", "method adapter requires adapter evidence (proposed 0.5.0)"
+	case o.Target.Kind == "store" && o.Adapter.Certificate == nil:
+		return "invalid_target", "a store target needs adapter.certificate (proposed 0.5.0)"
+	case o.Target.Kind == "file" && o.Adapter.File == nil:
+		return "invalid_target", "a file target needs adapter.file (proposed 0.5.0)"
+	case len(o.ServedChain) > 0 && o.Outcome != "cert_seen":
 		return "chain_outcome_mismatch", "served_chain must be present exactly when outcome is cert_seen"
+	case o.Outcome == "cert_seen" && len(o.ServedChain) == 0 && (o.Adapter == nil || o.Adapter.Certificate == nil):
+		return "chain_outcome_mismatch", "outcome cert_seen needs served_chain (or, proposed 0.5.0, adapter.certificate)"
 	}
 	return "", ""
 }

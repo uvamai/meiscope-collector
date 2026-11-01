@@ -3,16 +3,14 @@
 // and are never written to disk, logs or observations).
 //
 // Production sources lease from the customer's vault and arrive with the
-// adapter framework (WP1.1). EnvSource is a development fallback only.
+// adapter framework (WP1.1). The development-only EnvSource exists only in builds with the devcredentials tag (env_dev.go).
 package credential
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"regexp"
-	"strings"
 )
 
 // ErrNotFound means the source holds no credential for the reference. Callers
@@ -49,32 +47,6 @@ func (s Secret) LogValue() slog.Value { return slog.StringValue("[redacted]") }
 func (s Secret) MarshalText() ([]byte, error) { return []byte("[redacted]"), nil }
 
 var refPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
-
-// EnvPrefix is the prefix of EnvSource variables.
-const EnvPrefix = "MEISCOPE_DEV_CREDENTIAL_"
-
-// EnvSource reads MEISCOPE_DEV_CREDENTIAL_<REF> (upper case) from the
-// environment. DEVELOPMENT ONLY: environment variables are visible to other
-// processes of the same user and end up in shell history; production
-// deployments use a vault-backed source.
-type EnvSource struct {
-	Getenv func(string) string
-}
-
-// Get returns the credential for ref or ErrNotFound.
-func (e EnvSource) Get(_ context.Context, ref string) (Secret, error) {
-	if !refPattern.MatchString(ref) {
-		return Secret{}, fmt.Errorf("invalid credential reference %q", ref)
-	}
-	if e.Getenv == nil {
-		return Secret{}, ErrNotFound
-	}
-	v := strings.TrimSpace(e.Getenv(EnvPrefix + strings.ToUpper(ref)))
-	if v == "" {
-		return Secret{}, ErrNotFound
-	}
-	return NewSecret(v), nil
-}
 
 // None is a source that holds no credentials.
 type None struct{}

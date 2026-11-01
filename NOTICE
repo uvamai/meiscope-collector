@@ -23,6 +23,19 @@ The following third-party components are linked into the collector:
     Copyright 2009 The Go Authors.
     Licensed under the BSD 3-Clause License.
 
+  - age (filippo.io/age) v1.3.2
+    Copyright 2019 The age Authors; Copyright 2019 Google LLC.
+    Licensed under the BSD 3-Clause License.
+    Used for the age-encrypted credential file (WP1.1).
+
+  - HPKE for Go (filippo.io/hpke) v0.4.0, a dependency of age
+    Copyright 2009 The Go Authors.
+    Licensed under the BSD 3-Clause License.
+
+  - golang.org/x/sys, a dependency of age's dependencies
+    Copyright 2009 The Go Authors.
+    Licensed under the BSD 3-Clause License.
+
 Used in tests only (not linked into the binary):
 
   - yaml.v3 (gopkg.in/yaml.v3)

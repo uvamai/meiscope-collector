@@ -57,6 +57,7 @@ curl http://127.0.0.1:8090/healthz
 | `MEISCOPE_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `MEISCOPE_LOG_FORMAT` | `json` | `json` or `text` |
 | `MEISCOPE_CT_*` | | Certificate Transparency poller: owned domains, logs, state; see [docs/ct.md](docs/ct.md) |
+| `MEISCOPE_BUFFER_DIR`, `MEISCOPE_ADAPTER_STATE_FILE`, `MEISCOPE_PROXY_*`, `MEISCOPE_CA_BUNDLE` | | Adapters, local buffer and proxy egress; see [docs/adapters.md](docs/adapters.md) and [docs/osquery.md](docs/osquery.md) |
 
 ## API contract
 
