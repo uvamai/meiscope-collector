@@ -54,7 +54,7 @@ func TestWindowsPackRun(t *testing.T) {
 				st, err := os.Stat(pfx) //nolint:gosec // the CI job passes the path of the file it created
 				keystore = err == nil && o.Adapter.File.Size != nil && *o.Adapter.File.Size == st.Size() &&
 					o.Adapter.File.StoreType == submit.StorePKCS12 && len(o.Adapter.Findings) == 1 &&
-					o.Adapter.Findings[0].Code == submit.FindingStoreEncryptedNotRead
+					o.Adapter.Findings[0].Code == submit.FindingKeystoreNotParsed
 			}
 		}
 	}

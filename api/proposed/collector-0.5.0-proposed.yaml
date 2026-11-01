@@ -335,11 +335,12 @@ components:
       properties:
         code:
           type: string
-          enum: [store_encrypted_not_read]
+          enum: [keystore_not_parsed]
           description: |
-            store_encrypted_not_read: the file is a password-protected keystore
-            whose content the collector does not read (it never guesses,
-            defaults or brute-forces passwords). The finding carries the file
+            keystore_not_parsed: the file is a keystore container (.p12, .pfx,
+            .jks or .kdb) whose content the collector does not parse. It may
+            or may not be password-protected; the collector never opens it and
+            never guesses, defaults or brute-forces passwords. The finding carries the file
             path (target.path) and size (adapter.file.size) only.
     CTEntry:
       type: object

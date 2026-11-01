@@ -216,7 +216,7 @@ func TestCurrentCoreRejectsTheProposal(t *testing.T) {
 }
 
 // TestFindingAndMetadataInTheProposal covers the file metadata and the
-// store_encrypted_not_read finding.
+// keystore_not_parsed finding.
 func TestFindingAndMetadataInTheProposal(t *testing.T) {
 	core, err := submittest.NewProposedCore()
 	if err != nil {
@@ -227,7 +227,7 @@ func TestFindingAndMetadataInTheProposal(t *testing.T) {
 	o.Adapter.File.Owner, o.Adapter.File.Permissions, o.Adapter.File.StoreType = "S-1-5-18", "0640", submit.StorePKCS12
 	mt := t0
 	o.Adapter.File.MTime = &mt
-	o.Adapter.Findings = []submit.Finding{{Code: submit.FindingStoreEncryptedNotRead}}
+	o.Adapter.Findings = []submit.Finding{{Code: submit.FindingKeystoreNotParsed}}
 	cl, _ := submit.New(core.URL, core.Client())
 	if res, err := cl.Submit(context.Background(), []submit.Observation{o}); err != nil || res.Accepted != 1 {
 		t.Fatalf("%+v %v %v", res, err, core.Errors())

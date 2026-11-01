@@ -155,9 +155,10 @@ type AdapterEvidence struct {
 
 // Finding codes (PROPOSED 0.5.0).
 const (
-	// FindingStoreEncryptedNotRead marks a password-protected keystore whose
-	// content the collector does not read. It never guesses passwords.
-	FindingStoreEncryptedNotRead = "store_encrypted_not_read"
+	// FindingKeystoreNotParsed marks a keystore container (.p12, .pfx, .jks,
+	// .kdb) whose content the collector does not parse. It may or may not be
+	// password-protected, and the collector never guesses passwords.
+	FindingKeystoreNotParsed = "keystore_not_parsed"
 )
 
 // Finding is something an adapter could not do and reports instead of

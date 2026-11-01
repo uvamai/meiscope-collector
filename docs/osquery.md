@@ -17,11 +17,12 @@ Only certificate metadata and file metadata are collected:
   The collector never opens a keystore, and never guesses, defaults or
   brute-forces a password.
 
-### Password-protected stores
+### Keystore containers
 
-`.p12`, `.pfx`, `.jks` and `.kdb` files are password-protected containers.
+`.p12`, `.pfx`, `.jks` and `.kdb` files are keystore containers, usually
+password-protected.
 Because the pack does not open them, each one is reported, never skipped
-silently, with the finding `store_encrypted_not_read` (carrying the file path
+silently, with the finding `keystore_not_parsed` (carrying the file path
 and size, plus the store type, owner, mode and digest). A `.pem` file is a
 plain text bundle and carries no finding. Custody is reported as
 `key_custody: unknown` for certificates: osquery 5.x has no private-key
@@ -131,7 +132,7 @@ Unchanged files are not read again.
 | Row | Observation |
 |---|---|
 | certificate | target `store` (`posix/system` or `windows/<location>[/<sid>]/<store>`) with the file path when osquery reports one, outcome `cert_seen`, `adapter.certificate` (SHA-1 and metadata), `custody.key_custody: unknown` |
-| keystore file | target `file`, outcome `reached`, `adapter.file` (SHA-256, size, mtime, owner, mode, store type) and, for password-protected containers, the finding `store_encrypted_not_read` |
+| keystore file | target `file`, outcome `reached`, `adapter.file` (SHA-256, size, mtime, owner, mode, store type) and, for keystore containers, the finding `keystore_not_parsed` |
 
 All with `method: adapter`, `adapter.source: osquery`.
 

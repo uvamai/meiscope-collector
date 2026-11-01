@@ -174,13 +174,13 @@ func mapRow(query, host string, at time.Time, r row, st stats) (submit.Observati
 
 // classify returns the store type of a keystore file from its extension and
 // the findings that go with it. PKCS#12 (.p12, .pfx), JKS (.jks) and IBM
-// key database (.kdb) files are password-protected containers; the pack
+// key database (.kdb) files are keystore containers; the pack
 // reads only their path, size, times, owner, mode and SHA-256, never their
 // contents, and never tries a password, so each is reported as
-// store_encrypted_not_read instead of being skipped silently. A .pem file is
+// keystore_not_parsed instead of being skipped silently. A .pem file is
 // a plain text bundle and carries no finding.
 func classify(p string) (string, []submit.Finding) {
-	enc := []submit.Finding{{Code: submit.FindingStoreEncryptedNotRead}}
+	enc := []submit.Finding{{Code: submit.FindingKeystoreNotParsed}}
 	switch strings.ToLower(path.Ext(strings.ReplaceAll(p, `\`, "/"))) {
 	case ".p12", ".pfx":
 		return submit.StorePKCS12, enc
