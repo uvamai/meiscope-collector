@@ -13,7 +13,7 @@
    "queries": [
     {
      "id": 17,
-     "name": "meiscope_keystore_counts_windows",
+     "name": "meiscope_keystore_counts_windows_programdata_ssl",
      "description": "",
      "query": "SELECT 1;",
      "team_id": null

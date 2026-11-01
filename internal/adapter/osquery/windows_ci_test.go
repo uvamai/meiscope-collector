@@ -32,9 +32,11 @@ func TestWindowsPackRun(t *testing.T) {
 	if thumb == "" || pfx == "" || password == "" {
 		t.Fatal("the thumbprint, the pfx path and the pfx password must be set")
 	}
-	var files []string
-	for _, q := range []string{osquery.QueryCertificatesWindows, osquery.QueryKeystoresWindows, osquery.QueryKeystoreCountsWindows} {
-		files = append(files, filepath.Join(dir, "web01-"+q+".json"))
+	// Every Windows query of the pack wrote web01-<query>.json: the certificate
+	// stores, and a keystore and a counts query for each root.
+	files, err := filepath.Glob(filepath.Join(dir, "web01-meiscope_*.json"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no web01-meiscope_*.json outputs in %s (%v)", dir, err)
 	}
 	env, _ := newEnv(t, nil)
 	cfg := adapter.Config{Name: "win", Adapter: osquery.Name, Settings: map[string]string{
@@ -46,8 +48,13 @@ func TestWindowsPackRun(t *testing.T) {
 	for _, o := range res.Observations {
 		switch o.Target.Kind {
 		case submit.KindStore:
-			if o.Target.Store == "windows/LocalMachine/My" && o.Adapter.Certificate.SHA1 == thumb {
-				cert = o.Adapter.Certificate.CommonName == "web01.example.test"
+			if o.Adapter.Certificate.SHA1 == thumb {
+				// Recorded so a mismatch says what osquery actually reported.
+				t.Logf("test certificate seen: store %q, common name %q", o.Target.Store, o.Adapter.Certificate.CommonName)
+				// osquery reports the My store by its display name, "Personal".
+				if o.Target.Store == "windows/LocalMachine/Personal" {
+					cert = o.Adapter.Certificate.CommonName == "web01.example.test"
+				}
 			}
 		case submit.KindFile:
 			if strings.EqualFold(o.Target.Path, pfx) {
@@ -63,6 +70,14 @@ func TestWindowsPackRun(t *testing.T) {
 	}
 	if !keystore {
 		t.Errorf("the test keystore %s was not reported as an encrypted store with its size", pfx)
+	}
+	// Decoys below the depth limit and outside every root must not appear.
+	for _, decoy := range strings.Split(os.Getenv("MEISCOPE_WINDOWS_DECOYS"), ",") {
+		for _, o := range res.Observations {
+			if decoy != "" && strings.EqualFold(o.Target.Path, decoy) {
+				t.Errorf("%s was reported, but it is outside the targeted roots or deeper than %d levels", decoy, osquery.MaxWindowsRootDepth)
+			}
+		}
 	}
 	for _, k := range []string{"skipped_oversize", "skipped_excluded", "skipped_limit"} {
 		if _, ok := res.Stats[k]; !ok {

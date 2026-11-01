@@ -27,12 +27,19 @@ type directCursor struct {
 // the extension, ends with the query name (e.g. "web01-meiscope_keystores_posix.json").
 func directQuery(file string) (string, error) {
 	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
-	for _, q := range PackQueries {
+	for _, q := range []string{QueryCertificatesWindows, QueryCertificatesPosix, QueryKeystoresPosix, QueryKeystoreCountsPosix} {
 		if strings.HasSuffix(base, q) {
 			return q, nil
 		}
 	}
-	return "", fmt.Errorf("direct: %s: the file name must end with a pack query name (%s)", filepath.Base(file), strings.Join(PackQueries, ", "))
+	for _, prefix := range []string{windowsKeystoresPrefix, windowsCountsPrefix} {
+		if i := strings.LastIndex(base, prefix); i >= 0 {
+			if _, _, ok := windowsQueryKind(base[i:]); ok {
+				return base[i:], nil
+			}
+		}
+	}
+	return "", fmt.Errorf("direct: %s: the file name must end with a pack query name (%s, or a meiscope_keystores_windows_<root> / meiscope_keystore_counts_windows_<root> query)", filepath.Base(file), strings.Join(PackQueries, ", "))
 }
 
 // syncDirect reads osqueryi --json outputs (a JSON array of rows) for one

@@ -418,7 +418,7 @@ components:
           description: |
             PROPOSED (0.5.0). Store locator for kind store, slash-separated:
             "<platform>/<location>/<store>", for example
-            "windows/LocalMachine/My" or "posix/system".
+            "windows/LocalMachine/Personal" (osquery uses store display names) or "posix/system".
         path:
           type: string
           minLength: 1
