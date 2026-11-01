@@ -24,11 +24,11 @@ const fixtures = "../../internal/ct/testdata/"
 // an empty page) and the recorded crt.sh search.
 func fakeCTServices(t *testing.T) (certspotter, crtsh *httptest.Server) {
 	t.Helper()
-	cs, err := os.ReadFile(fixtures + "certspotter/issuances-uvam.ai.json")
+	cs, err := os.ReadFile(fixtures + "certspotter/issuances-owned.example.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	crt, err := os.ReadFile(fixtures + "crtsh/search-uvam.ai.json")
+	crt, err := os.ReadFile(fixtures + "crtsh/search-owned.example.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestCTPollSubmitsAndSavesProgress(t *testing.T) {
 	defer core.Close()
 	// The owned domains come from the core; MEISCOPE_CT_DOMAINS is then
 	// ignored (with a warning).
-	core.SetDomains("uvam.ai")
+	core.SetDomains("owned.example")
 	state := filepath.Join(t.TempDir(), "ct-state.json")
 	env := map[string]string{
 		"MEISCOPE_CORE_URL":           core.URL,
@@ -95,7 +95,7 @@ func TestCTPollSubmitsAndSavesProgress(t *testing.T) {
 		}
 	}
 	b, err := os.ReadFile(filepath.Clean(state))
-	if err != nil || !strings.Contains(string(b), `"uvam.ai": "17495069787"`) {
+	if err != nil || !strings.Contains(string(b), `"owned.example": "17495069787"`) {
 		t.Fatalf("state %s, %v", b, err)
 	}
 }
@@ -104,7 +104,7 @@ func TestCTPollWithoutCoreWritesBatch(t *testing.T) {
 	cs, _ := fakeCTServices(t)
 	state := filepath.Join(t.TempDir(), "ct-state.json")
 	env := map[string]string{
-		"MEISCOPE_CT_DOMAINS":         "uvam.ai",
+		"MEISCOPE_CT_DOMAINS":         "owned.example",
 		"MEISCOPE_CT_CERTSPOTTER_URL": cs.URL,
 		"MEISCOPE_CT_CRTSH_FALLBACK":  "false",
 		"MEISCOPE_CT_STATE_FILE":      state,
@@ -161,7 +161,7 @@ func TestCTPollOwnedDomainsFromCore(t *testing.T) {
 		t.Fatalf("empty list: %v, %d batches\n%s", err, len(core.Batches()), logs)
 	}
 
-	core.SetDomains("uvam.ai", "localhost") // a single label cannot be queried and is skipped
+	core.SetDomains("owned.example", "localhost") // a single label cannot be queried and is skipped
 	logs, err := run()
 	if err != nil || len(core.Batches()) != 1 || !strings.Contains(logs, "owned domain skipped") {
 		t.Fatalf("%v, %d batches\n%s", err, len(core.Batches()), logs)
@@ -180,14 +180,14 @@ func TestCTBaseline(t *testing.T) {
 	cs, crt := fakeCTServices(t)
 	env := map[string]string{"MEISCOPE_CT_CERTSPOTTER_URL": cs.URL, "MEISCOPE_CT_CRTSH_URL": crt.URL}
 	var out, errb bytes.Buffer
-	if err := ctBaselineCmd(context.Background(), []string{"--domain", "uvam.ai"}, &out, &errb, func(k string) string { return env[k] }, testDeps(nil)); err != nil {
+	if err := ctBaselineCmd(context.Background(), []string{"--domain", "owned.example"}, &out, &errb, func(k string) string { return env[k] }, testDeps(nil)); err != nil {
 		t.Fatalf("%v\n%s", err, errb.String())
 	}
 	if !strings.Contains(out.String(), "certificates:  2 of 10 crt.sh baseline (20.0 %)") {
 		t.Fatalf("report:\n%s", out.String())
 	}
 	out.Reset()
-	if err := ctBaselineCmd(context.Background(), []string{"--domain", "uvam.ai", "--json"}, &out, &errb, func(k string) string { return env[k] }, testDeps(nil)); err != nil {
+	if err := ctBaselineCmd(context.Background(), []string{"--domain", "owned.example", "--json"}, &out, &errb, func(k string) string { return env[k] }, testDeps(nil)); err != nil {
 		t.Fatal(err)
 	}
 	var v struct{ CertPercent float64 }
