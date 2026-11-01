@@ -51,7 +51,8 @@ func TestWindowsPackRun(t *testing.T) {
 			if o.Adapter.Certificate.SHA1 == thumb {
 				// Recorded so a mismatch says what osquery actually reported.
 				t.Logf("test certificate seen: store %q, common name %q", o.Target.Store, o.Adapter.Certificate.CommonName)
-				if o.Target.Store == "windows/LocalMachine/My" {
+				// osquery reports the My store by its display name, "Personal".
+				if o.Target.Store == "windows/LocalMachine/Personal" {
 					cert = o.Adapter.Certificate.CommonName == "web01.example.test"
 				}
 			}
