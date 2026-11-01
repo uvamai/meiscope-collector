@@ -12,9 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/clock"
@@ -45,6 +47,10 @@ type Client struct {
 	batch     int
 	maxWire   int
 	userAgent string
+	log       *slog.Logger
+
+	mu      sync.Mutex
+	unknown map[string]bool // rejection codes already logged as unknown
 }
 
 // Option configures a Client.
@@ -65,6 +71,10 @@ func WithBatchSize(n int) Option {
 	}
 }
 
+// WithLogger sets the logger; each rejection code the collector does not
+// know is logged on it once.
+func WithLogger(l *slog.Logger) Option { return func(cl *Client) { cl.log = l } }
+
 // WithUserAgent sets the User-Agent header.
 func WithUserAgent(ua string) Option { return func(cl *Client) { cl.userAgent = ua } }
 
@@ -81,7 +91,8 @@ func New(base string, hc *http.Client, opts ...Option) (*Client, error) {
 	if hc == nil {
 		hc = &http.Client{Timeout: 60 * time.Second}
 	}
-	c := &Client{base: u, hc: hc, clk: clock.System{}, policy: DefaultRetry, batch: MaxBatch, maxWire: MaxWireBytes}
+	c := &Client{base: u, hc: hc, clk: clock.System{}, policy: DefaultRetry, batch: MaxBatch, maxWire: MaxWireBytes,
+		log: slog.New(slog.DiscardHandler), unknown: map[string]bool{}}
 	for _, o := range opts {
 		o(c)
 	}
@@ -95,6 +106,8 @@ type Result struct {
 	Accepted   int
 	Duplicates int
 	Rejected   []Rejection
+	// Reasons counts the rejections by Rejection.Reason.
+	Reasons map[string]int
 }
 
 // PermanentError is a 4xx answer that retrying cannot fix.
@@ -147,9 +160,30 @@ func (c *Client) sendSplit(ctx context.Context, obs []Observation, offset int, r
 	res.Duplicates += br.Duplicates
 	for _, r := range br.Rejected {
 		r.Index += offset
+		r.Reason = RejectionReason(r.Code)
+		if !r.Known() {
+			c.logUnknown(r)
+		}
+		if res.Reasons == nil {
+			res.Reasons = map[string]int{}
+		}
+		res.Reasons[r.Reason]++
 		res.Rejected = append(res.Rejected, r)
 	}
 	return nil
+}
+
+// logUnknown logs a rejection code this collector does not know, once per
+// code. The observation is still counted as rejected (it is not resent).
+func (c *Client) logUnknown(r Rejection) {
+	c.mu.Lock()
+	seen := c.unknown[r.Code]
+	c.unknown[r.Code] = true
+	c.mu.Unlock()
+	if !seen {
+		c.log.Warn("the core rejected an observation with a code this collector does not know; it is counted as rejected and not resent",
+			"code", r.Code, "reason", r.Reason, "message", r.Message)
+	}
 }
 
 func encode(obs []Observation) ([]byte, error) {

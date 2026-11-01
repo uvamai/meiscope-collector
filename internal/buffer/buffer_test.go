@@ -1,10 +1,12 @@
 package buffer_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -364,5 +366,62 @@ func TestRejectedObservationsAreAcknowledged(t *testing.T) {
 	res, err := b.Flush(context.Background(), noRetry(core, clk), 10)
 	if err != nil || res.Accepted != 1 || res.Rejected != 1 || res.Remaining != 0 {
 		t.Fatalf("flush %+v, %v", res, err)
+	}
+}
+
+// TestUnknownRejectionCode: a newer core may answer with a rejection code
+// this collector does not know (the contract's x-extensible-enum, 0.4.1).
+// The collector logs each such code once, counts the observations as
+// rejected under "unknown:<code>", acknowledges them (resending cannot
+// succeed) and carries on.
+func TestUnknownRejectionCode(t *testing.T) {
+	core := newCore(t)
+	dir, k, clk := t.TempDir(), key(t), clock.NewFake(t0)
+	var logs bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logs, nil))
+	sub, err := submit.New(core.URL, core.Client(), submit.WithClock(clk), submit.WithRetry(retry.Policy{Attempts: 0}), submit.WithLogger(log))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := open(t, dir, k, clk, func(o *buffer.Options) { o.Log = log })
+	for i := 0; i < 4; i++ {
+		if err := b.Enqueue(context.Background(), []submit.Observation{obs(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	core.RejectNext("quarantined_by_policy", "quarantined_by_policy", "rate_limited")
+	res, err := b.Flush(context.Background(), sub, 2)
+	if err != nil || res.Sent != 4 || res.Accepted != 1 || res.Rejected != 3 || res.Remaining != 0 {
+		t.Fatalf("flush %+v, %v", res, err)
+	}
+	want := map[string]int{"unknown:quarantined_by_policy": 2, "unknown:rate_limited": 1}
+	if len(res.Reasons) != len(want) {
+		t.Errorf("reasons %v, want %v", res.Reasons, want)
+	}
+	for r, n := range want {
+		if res.Reasons[r] != n {
+			t.Errorf("reason %s counted %d times, want %d (reasons %v)", r, res.Reasons[r], n, res.Reasons)
+		}
+	}
+	// A later code in the same run is still logged once.
+	core.RejectNext("quarantined_by_policy")
+	if err := b.Enqueue(context.Background(), []submit.Observation{obs(4)}); err != nil {
+		t.Fatal(err)
+	}
+	if res, err = b.Flush(context.Background(), sub, 0); err != nil || res.Reasons["unknown:quarantined_by_policy"] != 1 || res.Remaining != 0 {
+		t.Fatalf("second flush %+v, %v", res, err)
+	}
+	for code, n := range map[string]int{"quarantined_by_policy": 1, "rate_limited": 1} {
+		if got := strings.Count(logs.String(), `"code":"`+code+`"`); got != n {
+			t.Errorf("code %s logged %d times, want %d:\n%s", code, got, n, logs.String())
+		}
+	}
+	// Not retried: the rejected observations were acknowledged and are not
+	// sent again.
+	if res, err = b.Flush(context.Background(), sub, 0); err != nil || res.Sent != 0 || b.Depth() != 0 {
+		t.Fatalf("third flush %+v, %v, depth %d", res, err, b.Depth())
+	}
+	if got := paths(t, core); !equal(got, wantPaths(5, 0)) {
+		t.Fatalf("core received %v", got)
 	}
 }

@@ -225,7 +225,7 @@ func TestFeatureFlag(t *testing.T) {
 		for _, tc := range []struct {
 			name string
 			core *submittest.Core
-		}{{"current contract 0.4.0", vendored}, {"proposed contract 0.5.0", proposed}} {
+		}{{"current contract 0.4.1", vendored}, {"proposed contract 0.5.0", proposed}} {
 			cl, _ := submit.New(tc.core.URL, tc.core.Client(), submit.WithRetry(retry.Policy{Attempts: 0}))
 			var accepted int
 			var serr error

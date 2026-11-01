@@ -1,10 +1,13 @@
 package submit
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Wire types of the collector API (/collector/v1), hand-written from
 // api/collector.yaml, which is vendored byte for byte from the core (core
-// contract 0.4.0, plus the PROPOSED 0.5.0 adapter additions marked below,
+// contract 0.4.1, plus the PROPOSED 0.5.0 adapter additions marked below,
 // which the core has not adopted yet). Field names and JSON tags follow the schema; the fake
 // core in submittest validates every request against the YAML.
 
@@ -122,6 +125,27 @@ type Rejection struct {
 	Index   int    `json:"index"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	// Reason is what the observation is counted as rejected under: Code when
+	// this collector knows it, else "unknown:<code>". Set by the Client.
+	Reason string `json:"-"`
+}
+
+// RejectionCodes are the rejection codes of the contract this collector was
+// built against. The core may add codes (x-extensible-enum, contract 0.4.1).
+var RejectionCodes = []string{
+	"invalid_target", "invalid_method", "invalid_outcome", "invalid_observed_at",
+	"observed_at_in_future", "invalid_served_chain", "chain_outcome_mismatch", "invalid_ct_entry",
+}
+
+// Known reports whether the rejection code is one this collector knows.
+func (r Rejection) Known() bool { return slices.Contains(RejectionCodes, r.Code) }
+
+// RejectionReason is the reason a rejection with this code is counted under.
+func RejectionReason(code string) string {
+	if slices.Contains(RejectionCodes, code) {
+		return code
+	}
+	return "unknown:" + code
 }
 
 // Problem is the error body (RFC 9457 subset).

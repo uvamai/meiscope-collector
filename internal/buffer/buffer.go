@@ -406,7 +406,9 @@ type FlushResult struct {
 	Accepted   int
 	Duplicates int
 	Rejected   int
-	Remaining  int
+	// Reasons counts the rejections by reason (submit.Rejection.Reason).
+	Reasons   map[string]int
+	Remaining int
 }
 
 // Flush replays the buffered observations in order, at most batch (1..1000)
@@ -438,7 +440,10 @@ func (b *Buffer) Flush(ctx context.Context, sub Submitter, batch int) (FlushResu
 			return res, fmt.Errorf("buffer flush: %w", err)
 		}
 		for _, rj := range r.Rejected {
-			b.opts.Log.Warn("observation rejected by the core", "code", rj.Code, "message", rj.Message)
+			// An unknown code is logged once by the submitter, not per observation.
+			if rj.Known() {
+				b.opts.Log.Warn("observation rejected by the core", "code", rj.Code, "message", rj.Message)
+			}
 		}
 		b.mu.Lock()
 		err = b.ackLocked(ents[len(ents)-1].seq)
@@ -453,6 +458,12 @@ func (b *Buffer) Flush(ctx context.Context, sub Submitter, batch int) (FlushResu
 		res.Accepted += r.Accepted
 		res.Duplicates += r.Duplicates
 		res.Rejected += len(r.Rejected)
+		for reason, k := range r.Reasons {
+			if res.Reasons == nil {
+				res.Reasons = map[string]int{}
+			}
+			res.Reasons[reason] += k
+		}
 	}
 	res.Remaining = b.Depth()
 	return res, nil
