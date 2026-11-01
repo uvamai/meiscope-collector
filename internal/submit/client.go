@@ -91,8 +91,10 @@ func New(base string, hc *http.Client, opts ...Option) (*Client, error) {
 	if hc == nil {
 		hc = &http.Client{Timeout: 60 * time.Second}
 	}
-	c := &Client{base: u, hc: hc, clk: clock.System{}, policy: DefaultRetry, batch: MaxBatch, maxWire: MaxWireBytes,
-		log: slog.New(slog.DiscardHandler), unknown: map[string]bool{}}
+	c := &Client{
+		base: u, hc: hc, clk: clock.System{}, policy: DefaultRetry, batch: MaxBatch, maxWire: MaxWireBytes,
+		log: slog.New(slog.DiscardHandler), unknown: map[string]bool{},
+	}
 	for _, o := range opts {
 		o(c)
 	}
