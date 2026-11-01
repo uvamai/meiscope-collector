@@ -1,0 +1,17 @@
+# Gitleaks configuration. The default rules apply.
+# Every exception below combines a path AND a precise regex (condition = "AND")
+# and matches the whole line, so it covers one known synthetic test string and
+# nothing else. Do not add path-only exceptions, rule-wide exceptions or stopwords.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic strings in adapter_test.go that check secrets do not leak"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^cmd/meiscope-collector/adapter_test\.go$''']
+regexes = [
+  '''^\s*"secret":\s*`\[\{"name":"a","adapter":"x","settings":\{"api_token":"abcdef123456"\}\}\]`,$''',
+  '''^\s*for name, creds := range map\[string\]staticCreds\{"missing": \{\}, "short": \{"buffer_key": "c2VjcmV0LXNob3J0LXZhbHVl"\}, "not base64": \{"buffer_key": "!!secret-key-material!!"\}\} \{$''',
+  '''^\s*for _, leak := range \[\]string\{"secret-key-material", "c2VjcmV0LXNob3J0LXZhbHVl", "secret-short-value"\} \{$''',
+]
