@@ -94,7 +94,7 @@ Each root has its own keystore query (`meiscope_keystores_windows_<root>`) and c
 
 ## The feature flag
 
-The core's current contract (0.4.1 and 0.8.0) rejects unknown fields, so it
+The core's current contract (0.8.1) rejects unknown fields, so it
 rejects store and file targets and adapter evidence. Until the core adopts
 the proposal (`api/proposed/collector-0.5.0-proposed.yaml`), the osquery
 adapter keeps all of it behind `MEISCOPE_FEATURE_LOCAL_STORE_V1`, which is

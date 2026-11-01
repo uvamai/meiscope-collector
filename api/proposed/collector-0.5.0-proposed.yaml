@@ -20,7 +20,7 @@ info:
     key material, keystore passwords or key-alias secrets (NFR-SEC-002).
 
     Compatibility: the change is additive within /v1 for readers that ignore
-    unknown fields. The core's 0.4.1 and 0.8.0 ingest REJECT unknown fields
+    unknown fields. The core's 0.4.1 and 0.8.1 ingest REJECT unknown fields
     (additionalProperties false; DisallowUnknownFields), so the core must
     adopt this version, and for the new objects defined here must accept and
     ignore unknown fields, BEFORE a collector sends any of it. The collector

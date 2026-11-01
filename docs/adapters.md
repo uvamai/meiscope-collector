@@ -72,7 +72,7 @@ same delta is read again next run; the core de-duplicates.
 ### Mapping observations
 
 `api/collector.yaml` is the core's contract, vendored byte for byte
-(currently 0.4.1); the core owns it. Certificate stores and files are not
+(currently 0.8.1); the core owns it. Certificate stores and files are not
 network endpoints, so the osquery adapter needs the target kinds `store` and
 `file` and the `adapter` evidence object. These are a PROPOSAL in
 `api/proposed/collector-0.5.0-proposed.yaml` (additive; `task
