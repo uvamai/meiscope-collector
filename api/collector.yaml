@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Meiscope collector API
-  version: 0.4.1
+  version: 0.8.1
   description: |
     Collector surface of the Meiscope core (ADR-0005: REST over mTLS,
     additive-only within /v1). The public collector repository vendors a copy
@@ -110,6 +110,22 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "415":
           description: Unsupported content type or content encoding.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "429":
+          description: |
+            The tenant reached its ingest rate limit (observations per minute)
+            or its daily observation quota (per UTC day). Nothing of the batch
+            was stored; resubmit it unchanged after Retry-After seconds. The
+            detail names the limit.
+          headers:
+            Retry-After:
+              description: Seconds until the batch can be resubmitted.
+              schema:
+                type: integer
+                minimum: 1
           content:
             application/json:
               schema:
@@ -238,6 +254,23 @@ components:
           description: |
             Host name or IP address that was connected to; for ct_log the host
             name of the log or service (e.g. its API host).
+
+            Metadata-only mode (NFR-DATA-004): when the tenant is in
+            metadata-only mode, host (and sni) must be the hashed form
+            "h1:" + base32(HMAC-SHA-256(key, canonical host)), where the
+            base32 is RFC 4648 with the lower-case alphabet a-z2-7 and no
+            padding (exactly 55 characters, pattern ^h1:[a-z2-7]{52}$, in
+            canonical form: the 4 bits after the 256 hash bits are zero). The
+            canonical host is an IP address in canonical text form (IPv4
+            dotted decimal; IPv6 per RFC 5952, lower case) or a name in lower
+            case without a trailing dot. key is the tenant's masking key, at
+            least 32 random bytes, kept only in the collector configuration;
+            the core never receives it. Observations with a host or sni not
+            in this form are rejected with code invalid_target and a message
+            starting "host_not_masked:". In full mode
+            both clear and hashed hosts are accepted. Test vector: key
+            000102...1f (the 32 bytes 0x00..0x1f), host "www.example.com" ->
+            "h1:4qf5a2mrnovkwma6up63lma76w37xpkmkjff74co5s5eewiv7zbq".
         port:
           type: integer
           minimum: 1
@@ -245,7 +278,10 @@ components:
         sni:
           type: string
           maxLength: 253
-          description: Server name sent in the TLS ClientHello; empty or absent when none was sent.
+          description: |
+            Server name sent in the TLS ClientHello; empty or absent when none
+            was sent. In metadata-only mode, the hashed form described under
+            host (the hash of the name that was sent).
     TLSParams:
       type: object
       additionalProperties: false

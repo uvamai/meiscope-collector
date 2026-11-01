@@ -25,7 +25,7 @@ func SpecPath() string {
 }
 
 // VendoredSpecPath returns the path of the vendored api/collector.yaml,
-// byte-identical to the core's contract 0.4.1.
+// byte-identical to the core's contract 0.8.1.
 func VendoredSpecPath() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "collector.yaml")

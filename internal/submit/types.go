@@ -7,7 +7,7 @@ import (
 
 // Wire types of the collector API (/collector/v1), hand-written from
 // api/collector.yaml, which is vendored byte for byte from the core (core
-// contract 0.4.1, plus the PROPOSED 0.5.0 adapter additions marked below,
+// contract 0.8.1, plus the PROPOSED 0.5.0 adapter additions marked below,
 // which the core has not adopted yet). Field names and JSON tags follow the schema; the fake
 // core in submittest validates every request against the YAML.
 
