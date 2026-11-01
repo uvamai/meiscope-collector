@@ -204,7 +204,7 @@ func (d directSink) Enqueue(ctx context.Context, obs []submit.Observation) error
 	if err != nil {
 		return err
 	}
-	d.log.Info("adapter observations submitted", "observations", len(obs), "accepted", res.Accepted, "duplicates", res.Duplicates, "rejected", len(res.Rejected))
+	d.log.Info("adapter observations submitted", "observations", len(obs), "accepted", res.Accepted, "duplicates", res.Duplicates, "rejected", len(res.Rejected), "rejected_reasons", res.Reasons)
 	return nil
 }
 
@@ -259,7 +259,7 @@ func adapterRunCmd(ctx context.Context, args []string, stdout, stderr io.Writer,
 	var buf *buffer.Buffer
 	stateFile := getenv("MEISCOPE_ADAPTER_STATE_FILE")
 	if cfg.CoreURL != "" {
-		sub, err = submit.New(cfg.CoreURL, hc, submit.WithClock(deps.clk), submit.WithUserAgent("meiscope-collector/"+platform.Version))
+		sub, err = submit.New(cfg.CoreURL, hc, submit.WithClock(deps.clk), submit.WithUserAgent("meiscope-collector/"+platform.Version), submit.WithLogger(log))
 		if err != nil {
 			return err
 		}
@@ -347,7 +347,7 @@ func adapterCycle(ctx context.Context, env adapter.Env, instances []adapter.Conf
 			errs = append(errs, err)
 		}
 		// Heartbeat fields until the core's heartbeat endpoint exists (WP0.3).
-		log.Info("collector heartbeat", "buffer_depth", buf.Depth(), "buffer_expired", buf.Expired(), "sent", res.Sent, "accepted", res.Accepted, "duplicates", res.Duplicates, "rejected", res.Rejected)
+		log.Info("collector heartbeat", "buffer_depth", buf.Depth(), "buffer_expired", buf.Expired(), "sent", res.Sent, "accepted", res.Accepted, "duplicates", res.Duplicates, "rejected", res.Rejected, "rejected_reasons", res.Reasons)
 	}
 	if sub == nil {
 		enc := json.NewEncoder(stdout)

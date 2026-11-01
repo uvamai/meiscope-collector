@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Meiscope collector API
-  version: 0.4.0
+  version: 0.4.1
   description: |
     Collector surface of the Meiscope core (ADR-0005: REST over mTLS,
     additive-only within /v1). The public collector repository vendors a copy
@@ -294,7 +294,11 @@ components:
           description: Position of the observation in the batch.
         code:
           type: string
-          enum:
+          description: |
+            Why the observation was refused. The set of codes grows
+            (x-extensible-enum): a client must accept a code it does not
+            know, count the observation as rejected and not resend it.
+          x-extensible-enum:
             - invalid_target
             - invalid_method
             - invalid_outcome

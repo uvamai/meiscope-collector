@@ -8,7 +8,7 @@ info:
     of this file.
 
     PROPOSAL (collector WP1.1, NOT adopted by the core): this file is the
-    core's 0.4.0 contract plus additive changes for adapters that read
+    core's 0.4.1 contract plus additive changes for adapters that read
     certificate stores and files (osquery). api/collector.yaml stays
     byte-identical to the core's file; the core adopts this proposal in its
     own repository. The additions are:
@@ -20,7 +20,7 @@ info:
     key material, keystore passwords or key-alias secrets (NFR-SEC-002).
 
     Compatibility: the change is additive within /v1 for readers that ignore
-    unknown fields. The core's 0.4.0 and 0.8.0 ingest REJECT unknown fields
+    unknown fields. The core's 0.4.1 and 0.8.0 ingest REJECT unknown fields
     (additionalProperties false; DisallowUnknownFields), so the core must
     adopt this version, and for the new objects defined here must accept and
     ignore unknown fields, BEFORE a collector sends any of it. The collector
@@ -472,7 +472,11 @@ components:
           description: Position of the observation in the batch.
         code:
           type: string
-          enum:
+          description: |
+            Why the observation was refused. The set of codes grows
+            (x-extensible-enum): a client must accept a code it does not
+            know, count the observation as rejected and not resend it.
+          x-extensible-enum:
             - invalid_target
             - invalid_method
             - invalid_outcome

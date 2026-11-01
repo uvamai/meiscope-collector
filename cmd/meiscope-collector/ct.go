@@ -68,7 +68,7 @@ func ctPollCmd(ctx context.Context, args []string, stdout, stderr io.Writer, get
 	poller.Log = log
 	var sub *submit.Client
 	if cfg.CoreURL != "" {
-		sub, err = submit.New(cfg.CoreURL, deps.core, submit.WithClock(deps.clk), submit.WithUserAgent(ctCfg.UserAgent()))
+		sub, err = submit.New(cfg.CoreURL, deps.core, submit.WithClock(deps.clk), submit.WithUserAgent(ctCfg.UserAgent()), submit.WithLogger(log))
 		if err != nil {
 			return err
 		}
@@ -141,7 +141,10 @@ func pollOnce(ctx context.Context, p *ct.Poller, st *ct.State, stateFile string,
 		}
 		log.Info("CT observations submitted", "observations", len(obs), "accepted", res.Accepted, "duplicates", res.Duplicates, "rejected", len(res.Rejected))
 		for _, r := range res.Rejected {
-			log.Warn("CT observation rejected by the core", "index", r.Index, "code", r.Code, "message", r.Message)
+			// An unknown code is logged once by the submitter, not per observation.
+			if r.Known() {
+				log.Warn("CT observation rejected by the core", "index", r.Index, "code", r.Code, "message", r.Message)
+			}
 		}
 	}
 	cycle.Commit(st)

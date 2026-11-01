@@ -25,7 +25,7 @@ func SpecPath() string {
 }
 
 // VendoredSpecPath returns the path of the vendored api/collector.yaml,
-// byte-identical to the core's contract 0.4.0.
+// byte-identical to the core's contract 0.4.1.
 func VendoredSpecPath() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "collector.yaml")
@@ -52,6 +52,7 @@ type Core struct {
 	errors   []string
 	rejected []Rejection
 	forced   []int
+	codes    []string
 	domains  []string
 }
 
@@ -89,6 +90,15 @@ func (c *Core) FailNext(statuses ...int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.forced = append(c.forced, statuses...)
+}
+
+// RejectNext makes the core reject the next len(codes) valid observations it
+// receives, in order, with these codes, which may be codes this collector
+// does not know (a newer core).
+func (c *Core) RejectNext(codes ...string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.codes = append(c.codes, codes...)
 }
 
 // SetDomains sets the owned domains GET /collector/v1/owned-domains returns.
@@ -173,12 +183,15 @@ func (c *Core) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rejected := []Rejection{}
+	c.mu.Lock()
 	for i, o := range batch.Observations {
 		if code, msg := rejection(o); code != "" {
 			rejected = append(rejected, Rejection{Index: i, Code: code, Message: msg})
+		} else if len(c.codes) > 0 {
+			rejected = append(rejected, Rejection{Index: i, Code: c.codes[0], Message: "rejected by the test"})
+			c.codes = c.codes[1:]
 		}
 	}
-	c.mu.Lock()
 	c.batches = append(c.batches, body)
 	c.rejected = append(c.rejected, rejected...)
 	c.mu.Unlock()

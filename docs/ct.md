@@ -51,7 +51,7 @@ operations mailbox) to add them.
 New certificates only: the poller dedupes by the SHA-256 fingerprint of the
 (pre)certificate across sources and across polls. Each becomes one
 observation (`POST /collector/v1/observations`, gzip JSON, at most 1,000 per
-batch) in the shape of the core's collector API 0.4.0 (`api/collector.yaml`):
+batch) in the shape of the core's collector API 0.4.1 (`api/collector.yaml`):
 
 - `method: ct`, `outcome: cert_seen`;
 - `target`: kind `ct_log`, `host` and `port` = the API host and port of the
