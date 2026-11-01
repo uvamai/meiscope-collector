@@ -5,6 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -13,7 +17,7 @@ var now = time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC) // a Monday
 
 func validScope() Scope {
 	return Scope{
-		ID: "scope-1", TenantID: "tenant-1",
+		ID: "scope-1", TenantID: "tenant-1", Version: 1,
 		Hosts: []string{"mail.example.test"}, CIDRs: []string{"192.0.2.0/28"}, Ports: []int{443, 25},
 		Policy:        ScanPolicy{RatePer24: 2, Burst: 2},
 		Authorisation: Authorisation{By: "ciso@example.test", At: now.Add(-24 * time.Hour), Document: "CHG-1234"},
@@ -97,6 +101,16 @@ func TestVerifyRefuses(t *testing.T) {
 		"unknown field refused":  {unknownField, pub, ErrInvalid},
 		"payload not json":       {Signed{Payload: []byte("not json"), Signature: ed25519.Sign(priv, []byte("not json"))}, pub, ErrInvalid},
 		"bad window end refused": {mutate(func(s *Scope) { s.Policy.Windows = []Window{{Start: "01:00", End: "x"}} }), pub, ErrInvalid},
+		"no version":             {mutate(func(s *Scope) { s.Version = 0 }), pub, ErrInvalid},
+		"rescan too often":       {mutate(func(s *Scope) { s.RescanIntervalSeconds = 10 }), pub, ErrInvalid},
+		"rescan too rare":        {mutate(func(s *Scope) { s.RescanIntervalSeconds = MaxRescanInterval + 1 }), pub, ErrInvalid},
+		"names ip outside cidrs": {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"198.51.100.1": {"a.example.test"}} }), pub, ErrInvalid},
+		"names key not an ip":    {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"mail.example.test": {"a.example.test"}} }), pub, ErrInvalid},
+		"names empty":            {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {}} }), pub, ErrInvalid},
+		"names wildcard":         {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"*.example.test"}} }), pub, ErrInvalid},
+		"names trailing dot":     {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"a.example.test."}} }), pub, ErrInvalid},
+		"names long label":       {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {strings.Repeat("a", 64) + ".test"}} }), pub, ErrInvalid},
+		"names too many":         {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": manyNames(MaxNamesPerIP + 1)} }), pub, ErrInvalid},
 	} {
 		if _, err := Verify(tc.s, tc.key, now); !errors.Is(err, tc.err) {
 			t.Errorf("%s: got %v, want %v", name, err, tc.err)
@@ -130,5 +144,157 @@ func TestInWindow(t *testing.T) {
 		if got := tc.p.InWindow(tc.t); got != tc.want {
 			t.Errorf("%v at %s: got %v, want %v", tc.p.Windows, tc.t.Format("Mon 15:04"), got, tc.want)
 		}
+	}
+}
+
+func manyNames(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("h%d.example.test", i)
+	}
+	return out
+}
+
+func TestNewFieldsAccepted(t *testing.T) {
+	pub, priv := keys(t)
+	s := validScope()
+	s.NamesByIP = map[string][]string{"192.0.2.5": {"www.example.test", "Portal.Example.Test", "_srv.example.test"}}
+	sc, err := Verify(sign(t, priv, s), pub, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.RescanIntervalSeconds != DefaultRescanInterval || len(sc.NamesByIP["192.0.2.5"]) != 3 {
+		t.Fatalf("scope %+v", sc)
+	}
+	s.RescanIntervalSeconds = 300 // the demo profile
+	if sc, err = Verify(sign(t, priv, s), pub, now); err != nil || sc.RescanIntervalSeconds != 300 {
+		t.Fatalf("demo interval: %v %+v", err, sc)
+	}
+}
+
+func signWith(t *testing.T, id string, key ed25519.PrivateKey, v any) Signed {
+	t.Helper()
+	s := sign(t, key, v)
+	s.KeyID = id
+	return s
+}
+
+// Rotation: the core pins the new key next to the old one, signs with the
+// new one, then retires the old one; no re-enrolment at any step.
+func TestKeyringRotation(t *testing.T) {
+	oldPub, oldPriv := keys(t)
+	newPub, newPriv := keys(t)
+	_, strangerPriv := keys(t)
+	ring, err := NewKeyring(map[string]ed25519.PublicKey{"k1": oldPub, "k2": newPub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []Signed{signWith(t, "k1", oldPriv, validScope()), signWith(t, "k2", newPriv, validScope())} {
+		if _, err := VerifyKeyring(s, ring, now); err != nil {
+			t.Fatalf("%s: %v", s.KeyID, err)
+		}
+	}
+	for name, tc := range map[string]struct {
+		s   Signed
+		err error
+	}{
+		"no key id":             {sign(t, newPriv, validScope()), ErrUnknownKey},
+		"unpinned key id":       {signWith(t, "k3", strangerPriv, validScope()), ErrUnknownKey},
+		"key id of another key": {signWith(t, "k1", newPriv, validScope()), ErrBadSignature},
+		"stranger under k2":     {signWith(t, "k2", strangerPriv, validScope()), ErrBadSignature},
+		"unsigned":              {Signed{KeyID: "k1"}, ErrUnsigned},
+	} {
+		if _, err := VerifyKeyring(tc.s, ring, now); !errors.Is(err, tc.err) {
+			t.Errorf("%s: got %v, want %v", name, err, tc.err)
+		}
+	}
+	retired, err := NewKeyring(map[string]ed25519.PublicKey{"k2": newPub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyKeyring(signWith(t, "k1", oldPriv, validScope()), retired, now); !errors.Is(err, ErrUnknownKey) {
+		t.Fatalf("retired key still accepted: %v", err)
+	}
+	thirdPub, _ := keys(t)
+	for name, keys := range map[string]map[string]ed25519.PublicKey{
+		"none":      {},
+		"three":     {"a": oldPub, "b": newPub, "c": thirdPub},
+		"no id":     {"": oldPub},
+		"short key": {"a": oldPub[:5]},
+	} {
+		if _, err := NewKeyring(keys); err == nil {
+			t.Errorf("%s: keyring accepted", name)
+		}
+	}
+}
+
+func TestTrackerRefusesReplay(t *testing.T) {
+	_, priv := keys(t)
+	path := filepath.Join(t.TempDir(), "scopes.json")
+	tr, err := LoadTracker(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(v int64, hosts ...string) (*Scope, []byte) {
+		s := validScope()
+		s.Version = v
+		if hosts != nil {
+			s.Hosts = hosts
+		}
+		signed := sign(t, priv, s)
+		return &s, signed.Payload
+	}
+	v1, p1 := at(1)
+	v2, p2 := at(2, "mail.example.test", "www.example.test")
+	if err := tr.Accept(v1, p1); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Accept(v1, p1); err != nil {
+		t.Fatalf("same payload again: %v", err)
+	}
+	if err := tr.Accept(v2, p2); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Accept(v1, p1); !errors.Is(err, ErrReplayed) {
+		t.Fatalf("older version: %v", err)
+	}
+	v2b, p2b := at(2, "other.example.test")
+	if err := tr.Accept(v2b, p2b); !errors.Is(err, ErrReplayed) {
+		t.Fatalf("same version, different bytes: %v", err)
+	}
+	// After a restart the state is still there.
+	tr2, err := LoadTracker(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tr2.Accept(v1, p1); !errors.Is(err, ErrReplayed) {
+		t.Fatalf("replay after restart: %v", err)
+	}
+	if err := tr2.Accept(v2, p2); err != nil {
+		t.Fatalf("current version after restart: %v", err)
+	}
+	other := validScope()
+	other.ID = "scope-2"
+	if err := tr2.Accept(&other, []byte("x")); err != nil {
+		t.Fatalf("other scope: %v", err)
+	}
+
+	mem, err := LoadTracker("")
+	if err != nil || mem.Accept(v1, p1) != nil {
+		t.Fatalf("memory tracker: %v", err)
+	}
+	bad := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(bad, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadTracker(bad); err == nil {
+		t.Fatal("corrupt state accepted")
+	}
+	if _, err := LoadTracker(t.TempDir()); err == nil {
+		t.Fatal("directory accepted as state file")
+	}
+	ro := &Tracker{path: filepath.Join(bad, "x.json"), seen: map[string]seenVersion{}} // parent is a file
+	if err := ro.Accept(v1, p1); err == nil {
+		t.Fatal("unwritable state accepted")
 	}
 }

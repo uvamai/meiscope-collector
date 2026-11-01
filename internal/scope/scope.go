@@ -26,6 +26,7 @@ var (
 	ErrExpired      = errors.New("scope: expired")
 	ErrNotYetValid  = errors.New("scope: not yet valid")
 	ErrInvalid      = errors.New("scope: invalid")
+	ErrUnknownKey   = errors.New("scope: signed with a key that is not pinned")
 )
 
 // Signed is a scope as it travels: the exact payload bytes the core signed,
@@ -39,8 +40,11 @@ type Signed struct {
 
 // Scope is what the core authorised.
 type Scope struct {
-	ID            string        `json:"id"`
-	TenantID      string        `json:"tenant_id"`
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	// Version increases every time the core changes the scope; the
+	// collector refuses an older or replayed version (Tracker).
+	Version       int64         `json:"version"`
 	Hosts         []string      `json:"hosts"`
 	CIDRs         []string      `json:"cidrs"`
 	Ports         []int         `json:"ports"`
@@ -48,6 +52,12 @@ type Scope struct {
 	Authorisation Authorisation `json:"authorisation"`
 	NotBefore     time.Time     `json:"not_before"`
 	NotAfter      time.Time     `json:"not_after"`
+	// RescanIntervalSeconds is how often the whole scope is scanned again;
+	// 0 means DefaultRescanInterval.
+	RescanIntervalSeconds int `json:"rescan_interval_seconds,omitempty"`
+	// NamesByIP lists, per address inside CIDRs, the host names known for it
+	// (from the scope, CT and the CMDB). Each name is probed as its own SNI.
+	NamesByIP map[string][]string `json:"names_by_ip,omitempty"`
 }
 
 // Authorisation records who allowed the scan (printed on every report).
@@ -94,6 +104,11 @@ const (
 	DefaultConnectTimeout = 5
 	DefaultCanaryPercent  = 1.0
 	MaxTargets            = 1 << 20
+	MinRescanInterval     = 60
+	MaxRescanInterval     = 7 * 24 * 3600
+	DefaultRescanInterval = 24 * 3600
+	MaxNamesPerIP         = 64
+	MaxActiveKeys         = 2
 )
 
 // Verify checks sig against the core's public key and validity at now, then
@@ -124,9 +139,20 @@ func Verify(s Signed, coreKey ed25519.PublicKey, now time.Time) (*Scope, error) 
 }
 
 func (sc *Scope) validate() error {
-	bad := func(format string, a ...any) error { return fmt.Errorf("%w: "+format, append([]any{ErrInvalid}, a...)...) }
+	bad := func(format string, a ...any) error {
+		return fmt.Errorf("%w: "+format, append([]any{ErrInvalid}, a...)...)
+	}
 	if sc.ID == "" || sc.TenantID == "" {
 		return bad("id and tenant_id are required")
+	}
+	if sc.Version < 1 {
+		return bad("version must be at least 1")
+	}
+	switch {
+	case sc.RescanIntervalSeconds == 0:
+		sc.RescanIntervalSeconds = DefaultRescanInterval
+	case sc.RescanIntervalSeconds < MinRescanInterval || sc.RescanIntervalSeconds > MaxRescanInterval:
+		return bad("rescan_interval_seconds must be %d..%d", MinRescanInterval, MaxRescanInterval)
 	}
 	if strings.TrimSpace(sc.Authorisation.By) == "" || sc.Authorisation.At.IsZero() || strings.TrimSpace(sc.Authorisation.Document) == "" {
 		return bad("authorisation (by, at, document) is required")
@@ -142,9 +168,29 @@ func (sc *Scope) validate() error {
 			return bad("port %d out of range", p)
 		}
 	}
+	var prefixes []netip.Prefix
 	for _, c := range sc.CIDRs {
-		if _, err := netip.ParsePrefix(c); err != nil {
+		p, err := netip.ParsePrefix(c)
+		if err != nil {
 			return bad("cidr %q: %v", c, err)
+		}
+		prefixes = append(prefixes, p)
+	}
+	for ip, names := range sc.NamesByIP {
+		a, err := netip.ParseAddr(ip)
+		if err != nil {
+			return bad("names_by_ip key %q is not an IP address", ip)
+		}
+		if !containsAddr(prefixes, a) {
+			return bad("names_by_ip address %s is outside the scope's cidrs", a)
+		}
+		if len(names) == 0 || len(names) > MaxNamesPerIP {
+			return bad("names_by_ip %s: 1..%d names", a, MaxNamesPerIP)
+		}
+		for _, n := range names {
+			if !validName(n) {
+				return bad("names_by_ip %s: invalid name %q", a, n)
+			}
 		}
 	}
 	p := &sc.Policy
@@ -206,6 +252,35 @@ func (p ScanPolicy) InWindow(t time.Time) bool {
 		}
 	}
 	return false
+}
+
+func containsAddr(ps []netip.Prefix, a netip.Addr) bool {
+	a = a.Unmap()
+	for _, p := range ps {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// validName accepts a DNS name: labels of letters, digits, '-' and '_',
+// 1..63 bytes each, 253 bytes in all, no wildcard.
+func validName(n string) bool {
+	if n == "" || len(n) > 253 || strings.HasSuffix(n, ".") {
+		return false
+	}
+	for _, l := range strings.Split(n, ".") {
+		if l == "" || len(l) > 63 {
+			return false
+		}
+		for _, r := range l {
+			if !(r == '-' || r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func containsDay(ds []time.Weekday, d time.Weekday) bool {
