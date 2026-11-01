@@ -1,0 +1,46 @@
+# Detective control for repositories without branch protection (GitHub Free).
+# Every commit on main must belong to a merged pull request. If one does not,
+# this opens an issue assigned to the repository owner and fails.
+name: main-guard
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  guard:
+    name: main-guard
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Confirm the pushed commit belongs to a merged pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          OWNER: ${{ github.repository_owner }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          # The commit-to-pull-request link can take a few seconds to appear after a merge.
+          for _ in 1 2 3 4 5 6; do
+            merged="$(gh api "repos/$REPO/commits/$SHA/pulls" \
+              --jq '[.[] | select(.merged_at != null and .base.ref == "main")] | length')"
+            if [ "$merged" -gt 0 ]; then
+              echo "Commit $SHA belongs to a merged pull request."
+              exit 0
+            fi
+            sleep 10
+          done
+          title="Direct push to main detected: $SHA"
+          open="$(gh issue list --repo "$REPO" --state open --limit 100 --json title --jq "[.[] | select(.title == \"$title\")] | length")"
+          if [ "$open" = 0 ]; then
+            gh issue create --repo "$REPO" --title "$title" --assignee "$OWNER" \
+              --body "Commit $SHA was pushed to main without a merged pull request. Run: $RUN_URL. Check who pushed it and why, and revert it through a pull request if it was not intended."
+          fi
+          echo "::error::Commit $SHA on main does not belong to a merged pull request."
+          exit 1

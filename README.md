@@ -72,3 +72,7 @@ fake core that validates every request against this file. Changes inside
 
 See [docs/install.md](docs/install.md). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
 Security reports: [SECURITY.md](SECURITY.md).
+
+## Working in this repository
+
+Run `task hooks` once in every clone to install the `pre-push` guard, which refuses any push to `main` and any force-push. Every change goes through a pull request and is merged with `gh pr merge <n> --merge` only after `gh pr checks <n>` shows every check passed. The `main-guard` workflow opens an issue if a commit reaches `main` without a merged pull request. The full rule is in `CLAUDE.md`.
