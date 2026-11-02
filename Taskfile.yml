@@ -85,6 +85,11 @@ tasks:
         docker compose -f test/zoo/compose.yml exec -T mail setup email add zoo@zoo.example.test "$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
       - go test -tags zoo -count=1 -v ./test/zoo/
 
+  test:bench:
+    desc: "D1 acceptance: 1,000 names x 3 ports (3,000 listed targets) in under 10 minutes, per-/24 rate held"
+    cmds:
+      - go test -tags bench -count=1 -timeout 15m -v ./test/bench/
+
   test:policy:
     desc: ScanPolicy pacer property tests (PENDING - human engineer, issue 13)
     cmds:
