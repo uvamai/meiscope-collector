@@ -1,0 +1,85 @@
+# TLS zoo (D1): test-only servers for the probe, run in CI by `task test:zoo`.
+# Images are pinned by digest (open-source licences, founder approval of
+# 2 Nov 2026). Every port is published on 127.0.0.1 only. Certificates come
+# from test/zoo/gen at run time; no key is committed. SQL Server is not in
+# the zoo: its TDS prelogin is tested against an in-process fake.
+name: meiscope-zoo
+
+services:
+  # PostgreSQL with TLS (SSLRequest -> 'S'), certificate from the zoo CA.
+  postgres-tls:
+    image: postgres@sha256:1d04b9ba1d4996401f2552b51beda8187f175c0645c091e4781134fc9c9a3eef # 16.6-alpine, PostgreSQL licence
+    environment:
+      POSTGRES_PASSWORD: zoo-test-only # throwaway, the probe never authenticates
+    volumes:
+      - ./certs:/zoo-certs:ro
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        install -o postgres -m 0600 /zoo-certs/server.key /tmp/server.key &&
+        install -o postgres -m 0644 /zoo-certs/server.pem /tmp/server.pem &&
+        exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/server.pem -c ssl_key_file=/tmp/server.key
+    ports: ["127.0.0.1:15432:5432"]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "postgres"], interval: 2s, retries: 60 }
+
+  # PostgreSQL without TLS (SSLRequest -> 'N'): the negative case "reached".
+  postgres-plain:
+    image: postgres@sha256:1d04b9ba1d4996401f2552b51beda8187f175c0645c091e4781134fc9c9a3eef # 16.6-alpine
+    environment:
+      POSTGRES_PASSWORD: zoo-test-only
+    ports: ["127.0.0.1:15433:5432"]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "postgres"], interval: 2s, retries: 60 }
+
+  # MySQL 8.4 generates its own TLS certificate at first start.
+  mysql:
+    image: mysql@sha256:106d5197fd8e4892980469ad42eb20f7a336bd81509aae4ee175d852f5cc4565 # 8.4.3, GPL-2.0
+    environment:
+      MYSQL_ROOT_PASSWORD: zoo-test-only
+    ports: ["127.0.0.1:13306:3306"]
+    healthcheck: { test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-pzoo-test-only"], interval: 2s, retries: 90 }
+
+  # OpenLDAP with StartTLS on 389 and LDAPS on 636 (self-generated certificate).
+  openldap:
+    image: osixia/openldap@sha256:18742e9c449c9c1afe129d3f2f3ee15fb34cc43e5f940a20f3399728f41d7c28 # 1.5.0, MIT
+    environment:
+      LDAP_DOMAIN: zoo.example.test
+      LDAP_ADMIN_PASSWORD: zoo-test-only
+      LDAP_TLS_VERIFY_CLIENT: never
+    command: ["--copy-service"]
+    ports: ["127.0.0.1:10389:389", "127.0.0.1:10636:636"]
+
+  # Postfix and Dovecot: SMTP STARTTLS (25, 587), SMTPS (465), IMAP STARTTLS
+  # (143), IMAPS (993), POP3 STARTTLS (110), POP3S (995), zoo CA certificate.
+  mail:
+    image: mailserver/docker-mailserver@sha256:01b82c6c1c64d5b73ba161c0107e5d7d038ebdce85eb9ed084f043e9c2a7943b # 14.0.0, MIT
+    hostname: mail.zoo.example.test
+    environment:
+      SSL_TYPE: manual
+      SSL_CERT_PATH: /zoo-certs/server.pem
+      SSL_KEY_PATH: /zoo-certs/server.key
+      ENABLE_POP3: "1"
+      ENABLE_CLAMAV: "0"
+      ENABLE_SPAMASSASSIN: "0"
+      ENABLE_AMAVIS: "0"
+      ENABLE_FAIL2BAN: "0"
+      ENABLE_POSTGREY: "0"
+      ENABLE_OPENDKIM: "0"
+      ENABLE_OPENDMARC: "0"
+      ENABLE_POLICYD_SPF: "0"
+      ENABLE_RSPAMD: "0"
+    volumes:
+      - ./certs:/zoo-certs:ro
+    ports:
+      - "127.0.0.1:10025:25"
+      - "127.0.0.1:10587:587"
+      - "127.0.0.1:10465:465"
+      - "127.0.0.1:10143:143"
+      - "127.0.0.1:10993:993"
+      - "127.0.0.1:10110:110"
+      - "127.0.0.1:10995:995"
+
+  # xrdp: RDP with TLS (self-generated certificate).
+  xrdp:
+    image: scottyhardy/docker-remote-desktop@sha256:8212117eb2693cbc0a3840b5da1fb540ad98b8dd20479b1a3ae70d5a3894fa7a # MIT
+    ports: ["127.0.0.1:13389:3389"]

@@ -71,9 +71,19 @@ tasks:
       - go test -tags devcredentials -count=1 -v -run "Integration|TestSquidProxy" ./...
 
   test:zoo:
-    desc: Probe plugin tests against the TLS zoo (placeholder until WP0.3)
+    desc: Probe tests against the TLS zoo (Docker; test/zoo/compose.yml, images pinned by digest)
+    env:
+      MEISCOPE_ZOO: "1"
     cmds:
-      - echo "test:zoo is a placeholder; probe plugins and the TLS zoo arrive in WP0.3"
+      - go run ./test/zoo/gen test/zoo/certs
+      - defer: docker compose -f test/zoo/compose.yml down -v
+      - docker compose -f test/zoo/compose.yml up -d
+      # docker-mailserver starts Postfix and Dovecot only once an account exists;
+      # the throwaway password is random and never used (the probe never logs in).
+      - |
+        for i in $(seq 1 60); do docker compose -f test/zoo/compose.yml exec -T mail true 2>/dev/null && break; sleep 2; done
+        docker compose -f test/zoo/compose.yml exec -T mail setup email add zoo@zoo.example.test "$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+      - go test -tags zoo -count=1 -v ./test/zoo/
 
   test:policy:
     desc: ScanPolicy pacer property tests (PENDING - human engineer, issue 13)
