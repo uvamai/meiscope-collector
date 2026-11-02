@@ -18,7 +18,14 @@ var now = time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC) // a Monday
 func validScope() Scope {
 	return Scope{
 		ID: "scope-1", TenantID: "tenant-1", Version: 1,
-		Hosts: []string{"mail.example.test"}, CIDRs: []string{"192.0.2.0/28"}, Ports: []int{443, 25},
+		Targets: []Target{
+			{Host: "mail.example.test", Port: 443, Protocol: ProtocolTLS},
+			{Host: "mail.example.test", Port: 587, Protocol: ProtocolSMTPStartTLS},
+			{Host: "192.0.2.1", Port: 443},
+			{Host: "192.0.2.5", Port: 443},
+			{Host: "192.0.2.7", Port: 3389, Protocol: ProtocolRDP},
+		},
+		Domains:       []string{"example.test"},
 		Policy:        ScanPolicy{RatePer24: 2, Burst: 2},
 		Authorisation: Authorisation{By: "ciso@example.test", At: now.Add(-24 * time.Hour), Document: "CHG-1234"},
 		NotBefore:     now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
@@ -87,10 +94,23 @@ func TestVerifyRefuses(t *testing.T) {
 		"expired":                {mutate(func(s *Scope) { s.NotAfter = now }), pub, ErrExpired},
 		"not yet valid":          {mutate(func(s *Scope) { s.NotBefore = now.Add(time.Minute) }), pub, ErrNotYetValid},
 		"no authorisation":       {mutate(func(s *Scope) { s.Authorisation.Document = " " }), pub, ErrInvalid},
-		"no targets":             {mutate(func(s *Scope) { s.Hosts, s.CIDRs = nil, nil }), pub, ErrInvalid},
-		"no ports":               {mutate(func(s *Scope) { s.Ports = nil }), pub, ErrInvalid},
-		"bad port":               {mutate(func(s *Scope) { s.Ports = []int{70000} }), pub, ErrInvalid},
-		"bad cidr":               {mutate(func(s *Scope) { s.CIDRs = []string{"10.0.0.0/33"} }), pub, ErrInvalid},
+		"no targets":             {mutate(func(s *Scope) { s.Targets = nil }), pub, ErrInvalid},
+		"port zero":              {mutate(func(s *Scope) { s.Targets[0].Port = 0 }), pub, ErrInvalid},
+		"bad port":               {mutate(func(s *Scope) { s.Targets[0].Port = 70000 }), pub, ErrInvalid},
+		"cidrs reserved":         {mutate(func(s *Scope) { s.ReservedCIDRs = json.RawMessage(`["10.0.0.0/8"]`) }), pub, ErrInvalid},
+		"hosts reserved":         {mutate(func(s *Scope) { s.ReservedHosts = json.RawMessage(`["mail.example.test"]`) }), pub, ErrInvalid},
+		"ports reserved":         {mutate(func(s *Scope) { s.ReservedPorts = json.RawMessage(`[443]`) }), pub, ErrInvalid},
+		"empty cidrs reserved":   {mutate(func(s *Scope) { s.ReservedCIDRs = json.RawMessage(`[]`) }), pub, ErrInvalid},
+		"cidr as host":           {mutate(func(s *Scope) { s.Targets[2].Host = "192.0.2.0/24" }), pub, ErrInvalid},
+		"range as host":          {mutate(func(s *Scope) { s.Targets[2].Host = "192.0.2.1-192.0.2.9" }), pub, ErrInvalid},
+		"wildcard host":          {mutate(func(s *Scope) { s.Targets[0].Host = "*.example.test" }), pub, ErrInvalid},
+		"list as host":           {mutate(func(s *Scope) { s.Targets[0].Host = "a.example.test,b.example.test" }), pub, ErrInvalid},
+		"host outside domains":   {mutate(func(s *Scope) { s.Targets[0].Host = "mail.unlisted.test" }), pub, ErrInvalid},
+		"bad domain":             {mutate(func(s *Scope) { s.Domains = []string{"*.example.test"} }), pub, ErrInvalid},
+		"ip domain":              {mutate(func(s *Scope) { s.Domains = []string{"192.0.2.1"} }), pub, ErrInvalid},
+		"duplicate target":       {mutate(func(s *Scope) { s.Targets = append(s.Targets, Target{Host: "MAIL.example.test", Port: 443}) }), pub, ErrInvalid},
+		"unknown protocol":       {mutate(func(s *Scope) { s.Targets[0].Protocol = "http" }), pub, ErrInvalid},
+		"too many targets":       {mutate(func(s *Scope) { s.Targets = manyTargets(MaxTargets + 1) }), pub, ErrInvalid},
 		"rate too high":          {mutate(func(s *Scope) { s.Policy.RatePer24 = MaxRatePer24 + 1 }), pub, ErrInvalid},
 		"zero rate":              {mutate(func(s *Scope) { s.Policy.RatePer24 = 0 }), pub, ErrInvalid},
 		"burst too high":         {mutate(func(s *Scope) { s.Policy.Burst = MaxBurst + 1 }), pub, ErrInvalid},
@@ -104,7 +124,7 @@ func TestVerifyRefuses(t *testing.T) {
 		"no version":             {mutate(func(s *Scope) { s.Version = 0 }), pub, ErrInvalid},
 		"rescan too often":       {mutate(func(s *Scope) { s.RescanIntervalSeconds = 10 }), pub, ErrInvalid},
 		"rescan too rare":        {mutate(func(s *Scope) { s.RescanIntervalSeconds = MaxRescanInterval + 1 }), pub, ErrInvalid},
-		"names ip outside cidrs": {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"198.51.100.1": {"a.example.test"}} }), pub, ErrInvalid},
+		"names ip not a target":  {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"198.51.100.1": {"a.example.test"}} }), pub, ErrInvalid},
 		"names key not an ip":    {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"mail.example.test": {"a.example.test"}} }), pub, ErrInvalid},
 		"names empty":            {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {}} }), pub, ErrInvalid},
 		"names wildcard":         {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"*.example.test"}} }), pub, ErrInvalid},
@@ -113,7 +133,7 @@ func TestVerifyRefuses(t *testing.T) {
 		"names ip literal":       {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"192.0.2.9"}} }), pub, ErrInvalid},
 		"names ipv6 literal":     {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"2001:db8::1"}} }), pub, ErrInvalid},
 		"names outside domains":  {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"www.unlisted.test"}} }), pub, ErrInvalid},
-		"names suffix trick":     {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"evilmail.example.test"}} }), pub, ErrInvalid},
+		"names suffix trick":     {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": {"mail.example.test.evil.test"}} }), pub, ErrInvalid},
 		"names too many":         {mutate(func(s *Scope) { s.NamesByIP = map[string][]string{"192.0.2.1": manyNames(MaxNamesPerIP + 1)} }), pub, ErrInvalid},
 	} {
 		if _, err := Verify(tc.s, tc.key, now); !errors.Is(err, tc.err) {
@@ -162,7 +182,6 @@ func manyNames(n int) []string {
 func TestNewFieldsAccepted(t *testing.T) {
 	pub, priv := keys(t)
 	s := validScope()
-	s.Hosts = []string{"example.test", "192.0.2.7"} // a domain and an address
 	s.NamesByIP = map[string][]string{"192.0.2.5": {"www.example.test", "Portal.Example.Test", "_srv.example.test", "example.test"}}
 	sc, err := Verify(sign(t, priv, s), pub, now)
 	if err != nil {
@@ -244,7 +263,9 @@ func TestTrackerRefusesReplay(t *testing.T) {
 		s := validScope()
 		s.Version = v
 		if hosts != nil {
-			s.Hosts = hosts
+			for _, h := range hosts {
+				s.Targets = append(s.Targets, Target{Host: h, Port: 8443})
+			}
 		}
 		signed := sign(t, priv, s)
 		return &s, signed.Payload
@@ -304,12 +325,12 @@ func TestTrackerRefusesReplay(t *testing.T) {
 	}
 }
 
-// With no domain in Hosts (CIDRs only), any valid name may be sent as SNI:
-// the connection still goes only to the in-scope address.
+// With no domains, any valid name may be sent as SNI on an IP target: the
+// connection still goes only to the listed address and port.
 func TestNamesWithoutDomains(t *testing.T) {
 	pub, priv := keys(t)
 	s := validScope()
-	s.Hosts = []string{"192.0.2.7"}
+	s.Domains = nil
 	s.NamesByIP = map[string][]string{"192.0.2.5": {"intranet.corp.test"}}
 	if _, err := Verify(sign(t, priv, s), pub, now); err != nil {
 		t.Fatal(err)
@@ -317,5 +338,31 @@ func TestNamesWithoutDomains(t *testing.T) {
 	s.NamesByIP = map[string][]string{"192.0.2.5": {"*.corp.test"}}
 	if _, err := Verify(sign(t, priv, s), pub, now); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("wildcard without domains: %v", err)
+	}
+}
+
+func manyTargets(n int) []Target {
+	out := make([]Target, n)
+	for i := range out {
+		out[i] = Target{Host: fmt.Sprintf("h%d.example.test", i), Port: 443}
+	}
+	return out
+}
+
+func TestTargetsNormalised(t *testing.T) {
+	pub, priv := keys(t)
+	s := validScope()
+	s.Targets = []Target{{Host: " Mail.Example.Test ", Port: 443}, {Host: "[2001:db8::1]", Port: 636}, {Host: "::ffff:192.0.2.9", Port: 993}}
+	s.NamesByIP = map[string][]string{"192.0.2.9": {"imap.example.test"}}
+	sc, err := Verify(sign(t, priv, s), pub, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{sc.Targets[0].Host, sc.Targets[1].Host, sc.Targets[2].Host}
+	if fmt.Sprint(got) != "[mail.example.test 2001:db8::1 192.0.2.9]" {
+		t.Fatalf("hosts %q", got)
+	}
+	if sc.Targets[0].Protocol != "" {
+		t.Fatalf("protocol defaulted: %q", sc.Targets[0].Protocol)
 	}
 }

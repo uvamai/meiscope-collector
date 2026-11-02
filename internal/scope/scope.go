@@ -1,6 +1,8 @@
 // Package scope verifies the scan scopes the core sends to the collector.
 //
-// A scope says what may be probed (hosts, CIDRs, ports), how (the
+// A scope says exactly which endpoints may be probed (an explicit list of
+// host or IP address, port and protocol: Meiscope probes only the endpoints
+// you list; there are no ranges and no "all ports"), how (the
 // ScanPolicy: rates, windows, deny-list, canary) and who authorised it. The
 // core signs it with its Ed25519 job-signing key; the collector refuses any
 // scope that is unsigned, signed by another key, expired, not yet valid, or
@@ -44,10 +46,14 @@ type Scope struct {
 	TenantID string `json:"tenant_id"`
 	// Version increases every time the core changes the scope; the
 	// collector refuses an older or replayed version (Tracker).
-	Version       int64         `json:"version"`
-	Hosts         []string      `json:"hosts"`
-	CIDRs         []string      `json:"cidrs"`
-	Ports         []int         `json:"ports"`
+	Version int64 `json:"version"`
+	// Targets are the endpoints to probe, each exactly once per scan. A
+	// person adds them (from the scope file, CT names, AD CS, osquery/Fleet
+	// bindings, appliance adapters or a CMDB/CSV import) and the core signs.
+	Targets []Target `json:"targets"`
+	// Domains, when set, bound every target host name and every SNI name in
+	// NamesByIP: each must equal a domain or lie below one.
+	Domains       []string      `json:"domains,omitempty"`
 	Policy        ScanPolicy    `json:"scan_policy"`
 	Authorisation Authorisation `json:"authorisation"`
 	NotBefore     time.Time     `json:"not_before"`
@@ -55,9 +61,45 @@ type Scope struct {
 	// RescanIntervalSeconds is how often the whole scope is scanned again;
 	// 0 means DefaultRescanInterval.
 	RescanIntervalSeconds int `json:"rescan_interval_seconds,omitempty"`
-	// NamesByIP lists, per address inside CIDRs, the host names known for it
-	// (from the scope, CT and the CMDB). Each name is probed as its own SNI.
+	// NamesByIP lists, per IP address target, the host names known for it
+	// (from the scope, CT and the CMDB). Each name is sent as its own SNI on
+	// that target; it never adds an endpoint.
 	NamesByIP map[string][]string `json:"names_by_ip,omitempty"`
+
+	// Reserved: address ranges and port lists are not supported in v1. A
+	// scope that carries them is refused (a later version may add range
+	// discovery under its own design review).
+	ReservedCIDRs json.RawMessage `json:"cidrs,omitempty"`
+	ReservedHosts json.RawMessage `json:"hosts,omitempty"`
+	ReservedPorts json.RawMessage `json:"ports,omitempty"`
+}
+
+// Target is one listed endpoint.
+type Target struct {
+	// Host is a DNS name or an IP address (no ranges, no wildcards).
+	Host string `json:"host"`
+	Port int    `json:"port"`
+	// Protocol is the hint for how TLS starts; empty picks by port.
+	Protocol string `json:"protocol,omitempty"`
+}
+
+// Protocol hints (Target.Protocol).
+const (
+	ProtocolTLS          = "tls" // implicit TLS: HTTPS, LDAPS, SMTPS, IMAPS, POP3S, ...
+	ProtocolSMTPStartTLS = "smtp-starttls"
+	ProtocolIMAPStartTLS = "imap-starttls"
+	ProtocolPOP3StartTLS = "pop3-starttls"
+	ProtocolLDAPStartTLS = "ldap-starttls"
+	ProtocolRDP          = "rdp"
+	ProtocolPostgres     = "postgres"
+	ProtocolMySQL        = "mysql"
+	ProtocolMSSQL        = "mssql"
+)
+
+// Protocols are the hints a target may carry.
+var Protocols = []string{
+	ProtocolTLS, ProtocolSMTPStartTLS, ProtocolIMAPStartTLS, ProtocolPOP3StartTLS,
+	ProtocolLDAPStartTLS, ProtocolRDP, ProtocolPostgres, ProtocolMySQL, ProtocolMSSQL,
 }
 
 // Authorisation records who allowed the scan (printed on every report).
@@ -69,8 +111,8 @@ type Authorisation struct {
 
 // ScanPolicy is the scope's rate and safety settings.
 type ScanPolicy struct {
-	// Deny lists hosts (exact names or DNS suffixes) and CIDRs never probed,
-	// even when Hosts or CIDRs include them.
+	// Deny lists hosts (exact names or DNS suffixes), IP addresses and CIDRs
+	// never probed, even when Targets list them or a name resolves into them.
 	Deny []string `json:"deny"`
 	// RatePer24 is new connections per second to any one /24 (IPv4) or /64
 	// (IPv6).
@@ -103,7 +145,7 @@ const (
 	MaxConnectTimeout     = 15
 	DefaultConnectTimeout = 5
 	DefaultCanaryPercent  = 1.0
-	MaxTargets            = 1 << 20
+	MaxTargets            = 20000
 	MinRescanInterval     = 60
 	MaxRescanInterval     = 7 * 24 * 3600
 	DefaultRescanInterval = 24 * 3600
@@ -157,33 +199,55 @@ func (sc *Scope) validate() error {
 	if strings.TrimSpace(sc.Authorisation.By) == "" || sc.Authorisation.At.IsZero() || strings.TrimSpace(sc.Authorisation.Document) == "" {
 		return bad("authorisation (by, at, document) is required")
 	}
-	if len(sc.Hosts) == 0 && len(sc.CIDRs) == 0 {
-		return bad("no hosts or cidrs")
+	if len(sc.ReservedCIDRs) > 0 || len(sc.ReservedHosts) > 0 || len(sc.ReservedPorts) > 0 {
+		return bad("cidrs, hosts and ports are not supported in v1; list explicit targets")
 	}
-	if len(sc.Ports) == 0 {
-		return bad("no ports")
+	domains, err := normaliseDomains(sc.Domains)
+	if err != nil {
+		return bad("%v", err)
 	}
-	for _, p := range sc.Ports {
-		if p < 1 || p > 65535 {
-			return bad("port %d out of range", p)
+	if len(sc.Targets) == 0 {
+		return bad("no targets")
+	}
+	if len(sc.Targets) > MaxTargets {
+		return bad("more than %d targets", MaxTargets)
+	}
+	ipTargets := map[netip.Addr]bool{}
+	seen := map[Target]bool{}
+	for i := range sc.Targets {
+		t := &sc.Targets[i]
+		h := strings.ToLower(strings.TrimSpace(t.Host))
+		if a, err := netip.ParseAddr(strings.Trim(h, "[]")); err == nil {
+			h = a.Unmap().String()
+			ipTargets[a.Unmap()] = true
+		} else {
+			if !validName(h) {
+				return bad("target %d: host %q is not a single DNS name or IP address", i, t.Host)
+			}
+			if len(domains) > 0 && !underDomains(h, domains) {
+				return bad("target %d: host %q is outside the scope's domains", i, t.Host)
+			}
 		}
-	}
-	var prefixes []netip.Prefix
-	for _, c := range sc.CIDRs {
-		p, err := netip.ParsePrefix(c)
-		if err != nil {
-			return bad("cidr %q: %v", c, err)
+		t.Host = h
+		if t.Port < 1 || t.Port > 65535 {
+			return bad("target %d: port %d out of range", i, t.Port)
 		}
-		prefixes = append(prefixes, p)
+		if t.Protocol != "" && !contains(Protocols, t.Protocol) {
+			return bad("target %d: unknown protocol %q", i, t.Protocol)
+		}
+		k := Target{Host: t.Host, Port: t.Port}
+		if seen[k] {
+			return bad("target %s:%d is listed twice", t.Host, t.Port)
+		}
+		seen[k] = true
 	}
-	domains := scopeDomains(sc.Hosts)
 	for ip, names := range sc.NamesByIP {
 		a, err := netip.ParseAddr(ip)
 		if err != nil {
 			return bad("names_by_ip key %q is not an IP address", ip)
 		}
-		if !containsAddr(prefixes, a) {
-			return bad("names_by_ip address %s is outside the scope's cidrs", a)
+		if !ipTargets[a.Unmap()] {
+			return bad("names_by_ip address %s is not a listed target", a)
 		}
 		if len(names) == 0 || len(names) > MaxNamesPerIP {
 			return bad("names_by_ip %s: 1..%d names", a, MaxNamesPerIP)
@@ -258,27 +322,27 @@ func (p ScanPolicy) InWindow(t time.Time) bool {
 	return false
 }
 
-func containsAddr(ps []netip.Prefix, a netip.Addr) bool {
-	a = a.Unmap()
-	for _, p := range ps {
-		if p.Contains(a) {
+// normaliseDomains lower-cases domains and refuses anything that is not a
+// DNS name (wildcards and IP literals included).
+func normaliseDomains(ds []string) ([]string, error) {
+	out := make([]string, 0, len(ds))
+	for _, d := range ds {
+		d = strings.ToLower(strings.TrimSpace(d))
+		if !validName(d) {
+			return nil, fmt.Errorf("domain %q is not a DNS name", d)
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func contains(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
 			return true
 		}
 	}
 	return false
-}
-
-// scopeDomains returns the scope's host names (lower case); IP literals in
-// Hosts are addresses, not domains, and are left out.
-func scopeDomains(hosts []string) []string {
-	var out []string
-	for _, h := range hosts {
-		h = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(h), "."))
-		if _, err := netip.ParseAddr(h); err != nil && h != "" {
-			out = append(out, h)
-		}
-	}
-	return out
 }
 
 // underDomains reports whether n equals one of domains or is below one.
