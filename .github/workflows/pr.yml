@@ -62,14 +62,17 @@ jobs:
       - run: task test:zoo # placeholder until WP0.3
 
   policy:
-    name: scanpolicy property tests
+    # PENDING: the pacer property tests wait for a human engineer (founder
+    # decision 2 Nov 2026; issue #13). This job does not test anything yet;
+    # it says so in the run summary rather than passing silently.
+    name: scanpolicy property tests (PENDING — human engineer)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
         with:
           version: ${{ env.TASK_VERSION }}
-      - run: task test:policy # placeholder until WP0.3
+      - run: task test:policy
 
   security:
     runs-on: ubuntu-latest

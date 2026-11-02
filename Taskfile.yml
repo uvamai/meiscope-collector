@@ -76,9 +76,10 @@ tasks:
       - echo "test:zoo is a placeholder; probe plugins and the TLS zoo arrive in WP0.3"
 
   test:policy:
-    desc: ScanPolicy property tests (placeholder until WP0.3)
+    desc: ScanPolicy pacer property tests (PENDING - human engineer, issue 13)
     cmds:
-      - echo "test:policy is a placeholder; ScanPolicy arrives in WP0.3"
+      - echo "::warning title=ScanPolicy property tests PENDING::The pacer property tests are not written yet and wait for a human engineer. Nothing is tested by this job. See https://github.com/uvamai/meiscope-collector/issues/13"
+      - echo "PENDING - ScanPolicy pacer property tests need a human engineer - https://github.com/uvamai/meiscope-collector/issues/13"
 
   lint:
     desc: go vet, golangci-lint and gofumpt
