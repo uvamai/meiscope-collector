@@ -33,7 +33,7 @@ func main() {
 }
 
 func run(dir string) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G301 -- containers read the certificates
+	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G301 G703 -- the operator-chosen output folder; containers read the certificates
 		return err
 	}
 	now := time.Now()
@@ -90,7 +90,7 @@ func run(dir string) error {
 	for name, b := range files {
 		// 0644: the zoo containers run as their own users and must read the
 		// throwaway test key; it never leaves the CI runner.
-		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil { // #nosec G306 -- throwaway test key, see above
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil { // #nosec G306 G703 -- throwaway test key in the output folder, see above
 			return err
 		}
 	}
