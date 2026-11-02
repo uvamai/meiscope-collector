@@ -262,10 +262,8 @@ func TestTrackerRefusesReplay(t *testing.T) {
 	at := func(v int64, hosts ...string) (*Scope, []byte) {
 		s := validScope()
 		s.Version = v
-		if hosts != nil {
-			for _, h := range hosts {
-				s.Targets = append(s.Targets, Target{Host: h, Port: 8443})
-			}
+		for _, h := range hosts {
+			s.Targets = append(s.Targets, Target{Host: h, Port: 8443})
 		}
 		signed := sign(t, priv, s)
 		return &s, signed.Payload
