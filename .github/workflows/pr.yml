@@ -62,7 +62,26 @@ jobs:
       - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
         with:
           version: ${{ env.TASK_VERSION }}
+      # Packet capture of the zoo scan: after the server certificate the
+      # probe's client sends nothing but one alert (internal/wirecheck).
+      - name: start packet capture
+        run: |
+          sudo tcpdump -i lo -U -s 0 -w "$RUNNER_TEMP/zoo.pcap" 'tcp portrange 10000-15999' >/dev/null 2>&1 &
+          echo $! > "$RUNNER_TEMP/tcpdump.pid"
+          sleep 2
       - run: task test:zoo
+      - name: check the packet capture
+        if: always()
+        run: |
+          sudo kill -INT "$(cat "$RUNNER_TEMP/tcpdump.pid")" && sleep 2
+          sudo chmod a+r "$RUNNER_TEMP/zoo.pcap"
+          go run ./test/zoo/pcapcheck -min-tls 12 "$RUNNER_TEMP/zoo.pcap" 15432 15433 13306 10389 10636 10025 10587 10465 10143 10993 10110 10995 13389 10999
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: zoo-packet-capture
+          path: ${{ runner.temp }}/zoo.pcap
+          retention-days: 14
 
   policy:
     # PENDING: the pacer property tests wait for a human engineer (founder
