@@ -31,8 +31,8 @@ func rdpFake(neg []byte) func(*server, net.Conn, *bufio.Reader) bool {
 		if _, ok := readN(s, br, 19); !ok {
 			return false
 		}
-		cc := append([]byte{byte(6 + len(neg)), 0xd0, 0, 0, 0x12, 0x34, 0}, neg...)
-		out := append([]byte{0x03, 0, 0, byte(4 + len(cc))}, cc...)
+		cc := append([]byte{byte(6 + len(neg)), 0xd0, 0, 0, 0x12, 0x34, 0}, neg...) // #nosec G115 -- len(neg) is 0 or 8
+		out := append([]byte{0x03, 0, 0, byte(4 + len(cc))}, cc...)                 // #nosec G115 -- at most 19
 		_, _ = c.Write(out)
 		return len(neg) == 8 && neg[0] == rdpNegRsp && neg[4] != 0
 	}
@@ -64,7 +64,7 @@ func mysqlGreeting(caps uint16) []byte {
 	p = binary.LittleEndian.AppendUint16(p, caps) // capability flags (lower)
 	p = append(p, 0x21, 2, 0, 0, 0, 21)           // charset, status, upper caps, auth data length
 	p = append(p, make([]byte, 10)...)
-	return append([]byte{byte(len(p)), 0, 0, 0}, p...)
+	return append([]byte{byte(len(p)), 0, 0, 0}, p...) // #nosec G115 -- the greeting is under 64 bytes
 }
 
 func mysqlFake(greeting []byte, ok bool) func(*server, net.Conn, *bufio.Reader) bool {

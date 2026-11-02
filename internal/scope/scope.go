@@ -306,7 +306,7 @@ func validName(n string) bool {
 			return false
 		}
 		for _, r := range l {
-			if !(r == '-' || r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
+			if r != '-' && r != '_' && (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
 				return false
 			}
 		}

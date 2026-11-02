@@ -188,7 +188,10 @@ func tdsPreloginRequest() []byte {
 }
 
 func tdsPacket(typ, id byte, payload []byte) []byte {
-	p := make([]byte, tdsHeaderLen, tdsHeaderLen+len(payload))
+	p := make([]byte, tdsHeaderLen, tdsHeaderLen+tdsMaxPacketBytes)
+	if len(payload) > tdsMaxPacketBytes {
+		panic("probe: TDS payload over tdsMaxPacketBytes") // callers split payloads; unreachable
+	}
 	p[0], p[1], p[6] = typ, tdsStatusEOM, id
 	binary.BigEndian.PutUint16(p[2:], uint16(tdsHeaderLen+len(payload))) // #nosec G115 -- payload is bounded by tdsMaxPacketBytes
 	return append(p, payload...)
