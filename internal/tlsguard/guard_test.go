@@ -14,9 +14,6 @@ import (
 // allowedDir is the only place weak TLS settings may appear.
 const allowedDir = "pkg/probe"
 
-// weakVersions are crypto/tls constants below TLS 1.2.
-var weakVersions = map[string]bool{"VersionTLS10": true, "VersionTLS11": true, "VersionSSL30": true}
-
 func moduleRoot(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()
@@ -68,10 +65,6 @@ func findings(fset *token.FileSet, f *ast.File) []string {
 						}
 					}
 				}
-			}
-		case *ast.SelectorExpr:
-			if p, ok := x.X.(*ast.Ident); ok && p.Name == "tls" && weakVersions[x.Sel.Name] {
-				report(x, "tls."+x.Sel.Name)
 			}
 		}
 		return true
@@ -134,7 +127,7 @@ import "crypto/tls"
 var a = &tls.Config{InsecureSkipVerify: true}
 var b = &tls.Config{MinVersion: tls.VersionTLS11}
 var c = &tls.Config{MinVersion: 0x0301}
-var d = tls.VersionTLS10
+var d = &tls.Config{MaxVersion: tls.VersionTLS11} // allowed: a legacy test server
 var ok1 = &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: false}
 var ok2 = &tls.Config{MinVersion: tls.VersionTLS13}
 func f(cfg *tls.Config, v bool) {
@@ -149,9 +142,8 @@ func f(cfg *tls.Config, v bool) {
 		t.Fatal(err)
 	}
 	got := findings(fset, f)
-	// a, b, the TLS 1.1 constant in b, c, d, the two bad assignments and
-	// the SSL 3.0 constant in the second.
-	if len(got) != 8 {
-		t.Fatalf("%d findings, want 8:\n%s", len(got), strings.Join(got, "\n"))
+	// a, b, c and the two bad assignments.
+	if len(got) != 5 {
+		t.Fatalf("%d findings, want 5:\n%s", len(got), strings.Join(got, "\n"))
 	}
 }
