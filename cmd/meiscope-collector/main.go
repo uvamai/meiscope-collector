@@ -1,8 +1,10 @@
 // Command meiscope-collector is the Meiscope collector: an outbound-only
 // probe and adapter runner deployed in customer networks.
 //
-// WP0.1 skeleton: version, a placeholder run loop with /healthz, and a
-// placeholder enrol command. Probing and enrolment arrive in WP0.3.
+// run serves /healthz and, with a signed scope configured, probes the
+// scope's listed targets on its rescan schedule (D1). Enrolment against the
+// core arrives with D1b; until then scopes come from MEISCOPE_SCOPE_FILE,
+// verified against the pinned keys in MEISCOPE_SCOPE_KEYS.
 package main
 
 import (
@@ -20,13 +22,14 @@ import (
 	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/platform"
+	"github.com/uvamai/meiscope-collector/internal/submit"
 )
 
 const usage = `Usage: meiscope-collector <command> [flags]
 
 Commands:
   version             print build information
-  run                 run the collector (WP0.1: idle loop with /healthz)
+  run                 run the collector: /healthz, and the probe schedule when MEISCOPE_SCOPE_FILE is set (docs/probe.md)
   enrol --token TOKEN enrol with the core (WP0.1: placeholder)
   ct-poll [--every 1h] poll Certificate Transparency for the owned domains (docs/ct.md)
   ct-baseline --domain D  coverage of the CT poller against the crt.sh baseline
@@ -61,7 +64,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	case "version":
 		fmt.Fprintf(stdout, "meiscope-collector %s (commit %s)\n", platform.Version, platform.Commit)
 	case "run":
-		err = runCmd(ctx, args[1:], stderr, getenv)
+		err = runCmd(ctx, args[1:], stdout, stderr, getenv)
 	case "enrol":
 		err = enrolCmd(args[1:], stdout, stderr)
 	case "ct-poll":
@@ -114,7 +117,7 @@ Enrolment is a placeholder in WP0.1. From WP0.3 this command will:
 	return nil
 }
 
-func runCmd(ctx context.Context, args []string, stderr io.Writer, getenv func(string) string) error {
+func runCmd(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	if err := fs.Parse(args); err != nil {
@@ -128,17 +131,36 @@ func runCmd(ctx context.Context, args []string, stderr io.Writer, getenv func(st
 	if err != nil {
 		return err
 	}
+	var sub *submit.Client
+	if cfg.CoreURL != "" {
+		if sub, err = submit.New(cfg.CoreURL, nil, submit.WithLogger(log)); err != nil {
+			return err
+		}
+	}
+	sched, err := newProbeSchedule(getenv, sub, stdout, log)
+	if err != nil {
+		return err
+	}
 	ln, err := net.Listen("tcp", cfg.HealthAddr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", cfg.HealthAddr, err)
 	}
-	return serve(ctx, ln, log, idleInterval)
+	return serve(ctx, ln, log, idleInterval, sched)
 }
 
-// serve runs the health server on ln and the placeholder loop until ctx ends.
-func serve(ctx context.Context, ln net.Listener, log *slog.Logger, interval time.Duration) error {
+// serve runs the health server on ln, and the probe schedule when sched is
+// not nil, until ctx ends.
+func serve(ctx context.Context, ln net.Listener, log *slog.Logger, interval time.Duration, sched *probeSchedule) error {
+	handler := platform.HealthHandler()
+	if sched != nil {
+		handler = controlHandler(handler, sched.run, log)
+		probeCtx, stopProbe := context.WithCancel(ctx)
+		probeDone := make(chan struct{})
+		go func() { defer close(probeDone); sched.loop(probeCtx) }()
+		defer func() { stopProbe(); <-probeDone }()
+	}
 	srv := &http.Server{
-		Handler:           platform.HealthHandler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -162,7 +184,9 @@ func serve(ctx context.Context, ln net.Listener, log *slog.Logger, interval time
 		case err := <-errc:
 			return fmt.Errorf("health server: %w", err)
 		case <-ticker.C:
-			log.Info("idle: no scan scopes until enrolment exists (WP0.3)")
+			if sched == nil {
+				log.Info("idle: no scan scope configured (MEISCOPE_SCOPE_FILE)")
+			}
 		}
 	}
 }

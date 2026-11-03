@@ -17,6 +17,9 @@ keys.txt
 node_modules/
 !testdata/**/*.pem
 
+# TLS zoo certificates, generated in CI (test/zoo/gen)
+/test/zoo/certs/
+
 # Editors and OS
 .idea/
 .vscode/*

@@ -72,7 +72,9 @@ func TestServeHealthzAndShutdown(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, ln, slog.New(slog.NewTextHandler(io.Discard, nil)), 10*time.Millisecond) }()
+	go func() {
+		done <- serve(ctx, ln, slog.New(slog.NewTextHandler(io.Discard, nil)), 10*time.Millisecond, nil)
+	}()
 
 	client := &http.Client{Timeout: 2 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+ln.Addr().String()+"/healthz", http.NoBody)

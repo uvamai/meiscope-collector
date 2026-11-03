@@ -1,0 +1,39 @@
+{
+  "_comment": [
+    "Demo-estate explicit target list for the D1a live probe.",
+    "Derived by Shiela from test/demo-estate/EXPECTED.md (the Network endpoints table) in meiscope core on 2026-11-03, because Lyla's test/demo-estate/targets.json had not landed yet (Lyla is paused until ~6 Nov 2026).",
+    "REPLACE this file with Lyla's targets.json once she resumes; this is a stand-in so D1a does not block.",
+    "Fictional estate: every host is under the reserved TLD northwind.test. Explicit targets only: host + port + protocol hint, no ranges, no port sweeps. SNI equals the host for every (DNS) target here.",
+    "Protocol hint maps EXPECTED 'Check' -> scope protocol: tls->tls, postgres->postgres, smtp->smtp-starttls, rdp->rdp. dc01:636 is LDAPS (implicit TLS)."
+  ],
+  "estate": "Northwind Logistics (fictional)",
+  "domain": "northwind.test",
+  "source": "test/demo-estate/EXPECTED.md @ Network endpoints",
+  "targets": [
+    { "host": "www.northwind.test",          "port": 443,  "protocol": "tls",           "sni": "www.northwind.test" },
+    { "host": "intranet.northwind.test",      "port": 443,  "protocol": "tls",           "sni": "intranet.northwind.test" },
+    { "host": "legacy-erp.northwind.test",    "port": 443,  "protocol": "tls",           "sni": "legacy-erp.northwind.test" },
+    { "host": "db.northwind.test",            "port": 5432, "protocol": "postgres",      "sni": "db.northwind.test" },
+    { "host": "mail.northwind.test",          "port": 25,   "protocol": "smtp-starttls", "sni": "mail.northwind.test" },
+    { "host": "mail.northwind.test",          "port": 587,  "protocol": "smtp-starttls", "sni": "mail.northwind.test" },
+    { "host": "dc01.northwind.test",          "port": 636,  "protocol": "tls",           "sni": "dc01.northwind.test" },
+    { "host": "jump.northwind.test",          "port": 3389, "protocol": "rdp",           "sni": "jump.northwind.test" },
+    { "host": "core-sw01.northwind.test",     "port": 443,  "protocol": "tls",           "sni": "core-sw01.northwind.test" },
+    { "host": "wlc01.northwind.test",         "port": 443,  "protocol": "tls",           "sni": "wlc01.northwind.test" },
+    { "host": "vpn.northwind.test",           "port": 443,  "protocol": "tls",           "sni": "vpn.northwind.test" },
+    { "host": "fw01-mgmt.northwind.test",     "port": 4443, "protocol": "tls",           "sni": "fw01-mgmt.northwind.test" },
+    { "host": "api.northwind.test",           "port": 443,  "protocol": "tls",           "sni": "api.northwind.test" },
+    { "host": "partner-api.northwind.test",   "port": 443,  "protocol": "tls",           "sni": "partner-api.northwind.test" },
+    { "host": "orders.svc.northwind.test",    "port": 443,  "protocol": "tls",           "sni": "orders.svc.northwind.test" },
+    { "host": "billing.svc.northwind.test",   "port": 443,  "protocol": "tls",           "sni": "billing.svc.northwind.test" },
+    { "host": "tracking.svc.northwind.test",  "port": 443,  "protocol": "tls",           "sni": "tracking.svc.northwind.test" },
+    { "host": "auth.svc.northwind.test",      "port": 443,  "protocol": "tls",           "sni": "auth.svc.northwind.test" },
+    { "host": "search.svc.northwind.test",    "port": 443,  "protocol": "tls",           "sni": "search.svc.northwind.test" },
+    { "host": "notify.svc.northwind.test",    "port": 443,  "protocol": "tls",           "sni": "notify.svc.northwind.test" },
+    { "host": "graph.northwind.test",         "port": 443,  "protocol": "tls",           "sni": "graph.northwind.test" },
+    { "host": "webhooks.northwind.test",      "port": 443,  "protocol": "tls",           "sni": "webhooks.northwind.test" },
+    { "host": "ilo-esx01.northwind.test",     "port": 443,  "protocol": "tls",           "sni": "ilo-esx01.northwind.test" },
+    { "host": "printer-lvl3.northwind.test",  "port": 443,  "protocol": "tls",           "sni": "printer-lvl3.northwind.test" },
+    { "host": "ups-dc1.northwind.test",       "port": 443,  "protocol": "tls",           "sni": "ups-dc1.northwind.test" }
+  ]
+}
