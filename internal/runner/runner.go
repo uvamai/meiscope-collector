@@ -180,6 +180,16 @@ func (r *Runner) runJobs(ctx context.Context, sc *scope.Scope, pc *pacer, jobs [
 // same target are reported with that outcome without connecting again: the
 // port's state is the same for every name.
 func (r *Runner) runJob(ctx context.Context, sc *scope.Scope, pc *pacer, j Job, out func(submit.Observation), notRun func(int)) {
+	allow, err := allowFor(j)
+	if err != nil || allow == nil {
+		// Fail closed: a job whose allow list the runner cannot build is
+		// never probed. A nil Allow means "no list" to probe.New, so the
+		// probe would run unrestricted; refuse the whole job instead and
+		// count every SNI as not run.
+		r.o.Logger.WarnContext(ctx, "target not probed: allow list rejected", "scope", sc.ID, "host", j.Target.Host, "port", j.Target.Port, "error", err)
+		notRun(len(j.SNIs))
+		return
+	}
 	for i, sni := range j.SNIs {
 		if ctx.Err() != nil {
 			notRun(len(j.SNIs) - i)
@@ -191,7 +201,7 @@ func (r *Runner) runJob(ctx context.Context, sc *scope.Scope, pc *pacer, j Job, 
 			Roots:    r.o.Roots,
 			Now:      r.o.Clock.Now,
 			Logger:   r.o.Logger,
-			Allow:    allowFor(j),
+			Allow:    allow,
 			Pace: func(ctx context.Context, a netip.Addr) error {
 				dialled = a
 				return pc.wait(ctx, a)
@@ -231,15 +241,14 @@ func (r *Runner) runJob(ctx context.Context, sc *scope.Scope, pc *pacer, j Job, 
 
 // allowFor pins the probe to the job's own target: an IP target may only
 // dial that address; a name target only that name, dialled at the address
-// vetted for it.
-func allowFor(j Job) *probe.Allow {
-	var a *probe.Allow
+// vetted for it. The scope verifier has already refused anything NewAllow
+// would reject, but allowFor still returns the error so the caller can fail
+// closed rather than hand probe.New a nil (unrestricted) allow list.
+func allowFor(j Job) (*probe.Allow, error) {
 	if j.IP.IsValid() {
-		a, _ = probe.NewAllow(nil, []netip.Prefix{netip.PrefixFrom(j.IP, j.IP.BitLen())})
-	} else {
-		a, _ = probe.NewAllow([]string{j.Target.Host}, nil)
+		return probe.NewAllow(nil, []netip.Prefix{netip.PrefixFrom(j.IP, j.IP.BitLen())})
 	}
-	return a // the scope verifier has already refused anything NewAllow would
+	return probe.NewAllow([]string{j.Target.Host}, nil)
 }
 
 func attempts(jobs []Job) int {
