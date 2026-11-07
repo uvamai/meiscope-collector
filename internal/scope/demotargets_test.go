@@ -8,10 +8,11 @@ import (
 	"testing"
 )
 
-// demoTargetsFile is the explicit target list for the demo estate. It stands
-// in for Lyla's test/demo-estate/targets.json until she resumes (see the
-// file's _comment). This test proves every listed endpoint is a valid
-// explicit target under the same rules the collector enforces on a signed
+// demoTargetsFile is the explicit target list for the demo estate: a
+// byte-identical copy of the core's test/demo-estate/targets.json, which the
+// core generates (test/demo-estate/gen). Refresh it from the core; never edit
+// it here. Its category field is not read. This test proves every listed
+// endpoint is a valid explicit target under the same rules the collector enforces on a signed
 // scope, so the demo scope built from it cannot carry a target the probe
 // would refuse.
 const demoTargetsFile = "../../test/demo-estate/targets.json"
