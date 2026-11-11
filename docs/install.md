@@ -23,10 +23,42 @@ The package installs:
 | `/etc/meiscope-collector/collector.env` | configuration (no secrets) |
 
 ```sh
-sudoedit /etc/meiscope-collector/collector.env   # set MEISCOPE_CORE_URL
-sudo meiscope-collector enrol --token <one-time token>   # placeholder until WP0.3
+sudoedit /etc/meiscope-collector/collector.env   # set MEISCOPE_CORE_URL and MEISCOPE_CA_BUNDLE
+sudo sh -c 'set -a; . /etc/meiscope-collector/collector.env; meiscope-collector enrol --token-file -'
+                                                  # paste the one-time token, then Enter
 sudo systemctl enable --now meiscope-collector
 ```
+
+### Enrolment
+
+Enrolment runs once per collector and needs a **one-time token** from the
+core (valid 24 hours, single use). The collector:
+
+1. generates its private key **on this host**; the key never leaves it,
+2. sends the token and a certificate signing request (CSR) that asks for
+   nothing; the core decides the certificate (client authentication only,
+   valid 30 days),
+3. keeps the key and certificate together in
+   `/var/lib/meiscope-collector/identity.pem` (mode 0600, directory 0700),
+   and **pins** the core's CA bundle and scope-signing keys from the answer.
+
+From then on the collector trusts only the pinned CA for the core, presents
+its certificate on every call (mTLS), and renews it at two thirds of its
+lifetime with a new key.
+
+| Variable | Meaning |
+|---|---|
+| `MEISCOPE_CORE_URL` | the core's collector endpoint, `https://…` |
+| `MEISCOPE_CA_BUNDLE` | PEM file with the core's CA certificate, for the **first contact** only (the system roots are also trusted then). Without it, enrolment fails unless the core's certificate is publicly trusted; the token is never sent to a server the collector cannot verify. |
+| `MEISCOPE_STATE_DIR` | identity directory (default `/var/lib/meiscope-collector`) |
+
+Give the token through `--token-file PATH` or `--token-file -` (standard
+input) rather than `--token`: command-line arguments are visible to other
+users of the host. The token is never printed or logged.
+
+If enrolment fails with "invalid, expired or already used", ask for a new
+token. To enrol again, stop the collector and move the state directory away
+first; `enrol` refuses to overwrite an existing identity.
 
 ## Container
 

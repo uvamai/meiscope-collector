@@ -9,11 +9,13 @@ Licence: Apache-2.0. The collector is public so that you can read and verify
 exactly what runs in your network; release binaries are built by the public
 pipeline in `.github/workflows` and signed (cosign keyless, SBOM, provenance).
 
-> **Status: skeleton (WP0.1) plus the CT poller (WP0.4).** This release has
-> `version`, a placeholder `run` loop with a local `/healthz`, a placeholder
-> `enrol`, and `ct-poll` / `ct-baseline`, which read public Certificate
-> Transparency data for your owned domains (see [docs/ct.md](docs/ct.md)).
-> It does not probe anything yet. Probing and enrolment arrive in WP0.3.
+> **Status: pre-release.** `enrol` enrols with the core (key generated on
+> this host, client certificate for mTLS, pinned CA and scope-signing keys;
+> see [docs/install.md](docs/install.md#enrolment)); `ct-poll` /
+> `ct-baseline` read public Certificate Transparency data for your owned
+> domains ([docs/ct.md](docs/ct.md)); `run` probes the targets of a signed
+> scope ([docs/probe.md](docs/probe.md)). Scopes are still read from a
+> file; fetching them from the core over mTLS is the next release.
 
 ## What the collector sends, and what it never sends
 
