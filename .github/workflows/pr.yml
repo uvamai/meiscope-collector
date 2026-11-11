@@ -129,6 +129,15 @@ jobs:
           version: ${{ env.TASK_VERSION }}
       - run: task build
       - run: ./bin/meiscope-collector version
+      # The container image as release.yml builds it, both platforms, not pushed.
+      - name: Container image (linux/amd64, linux/arm64)
+        run: |
+          for arch in amd64 arm64; do
+            docker buildx build --platform "linux/$arch" -f deploy/Dockerfile \
+              --build-arg TARGETOS=linux --build-arg TARGETARCH="$arch" \
+              --provenance=false --sbom=false -t "meiscope-collector:pr-$arch" .
+          done
+          docker run --rm meiscope-collector:pr-amd64 version
 
   gitleaks:
     name: gitleaks
