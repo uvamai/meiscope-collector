@@ -126,7 +126,11 @@ func (s *Spec) keyword(sch map[string]any, k string, v any, path string) error {
 		if !ok {
 			return nil
 		}
-		if b, ok := val.(bool); ok && !b {
+		b, isBool := val.(bool)
+		if isBool && b {
+			return nil // additionalProperties true: unknown fields are allowed
+		}
+		if isBool {
 			props, _ := sch["properties"].(map[string]any)
 			for name := range obj {
 				if _, ok := props[name]; !ok {

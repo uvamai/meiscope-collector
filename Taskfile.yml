@@ -13,7 +13,7 @@ vars:
   # -race needs cgo; it runs in CI (Linux) and is skipped where no C compiler exists.
   RACE:
     sh: '[ "$(go env CGO_ENABLED)" = "1" ] && echo -race || echo'
-  GO_WANT: go1.27.3
+  GO_WANT: go1.27.4
 
 tasks:
   default:

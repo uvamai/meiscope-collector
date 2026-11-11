@@ -38,17 +38,9 @@ func TestNoArgsAndUnknown(t *testing.T) {
 	}
 }
 
-func TestEnrol(t *testing.T) {
-	if code, _, errOut := runArgs(t, "enrol"); code != 1 || !strings.Contains(errOut, "--token is required") {
+func TestEnrolNeedsToken(t *testing.T) {
+	if code, _, errOut := runArgs(t, "enrol"); code != 1 || !strings.Contains(errOut, "a token is required") {
 		t.Fatalf("missing token: code %d, stderr %q", code, errOut)
-	}
-	const secret = "s3cr3t-placeholder-token"
-	code, out, errOut := runArgs(t, "enrol", "--token", secret)
-	if code != 0 || !strings.Contains(out, "WP0.3") {
-		t.Fatalf("code %d, out %q", code, out)
-	}
-	if strings.Contains(out+errOut, secret) {
-		t.Fatal("token must never be printed")
 	}
 }
 

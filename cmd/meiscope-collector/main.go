@@ -30,7 +30,7 @@ const usage = `Usage: meiscope-collector <command> [flags]
 Commands:
   version             print build information
   run                 run the collector: /healthz, and the probe schedule when MEISCOPE_SCOPE_FILE is set (docs/probe.md)
-  enrol --token TOKEN enrol with the core (WP0.1: placeholder)
+  enrol --token-file F enrol with the core once: key on this host, certificate from the core (docs/install.md)
   ct-poll [--every 1h] poll Certificate Transparency for the owned domains (docs/ct.md)
   ct-baseline --domain D  coverage of the CT poller against the crt.sh baseline
   receiver run         run the optional log-push receiver (disabled by default; docs/install.md)
@@ -66,7 +66,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	case "run":
 		err = runCmd(ctx, args[1:], stdout, stderr, getenv)
 	case "enrol":
-		err = enrolCmd(args[1:], stdout, stderr)
+		err = enrolCmd(ctx, args[1:], stdout, stderr, getenv, defaultEnrolDeps())
 	case "ct-poll":
 		err = ctPollCmd(ctx, args[1:], stdout, stderr, getenv, defaultCTDeps())
 	case "ct-baseline":
@@ -91,30 +91,6 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return 1
 	}
 	return 0
-}
-
-func enrolCmd(args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("enrol", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	token := fs.String("token", "", "one-time enrolment token issued by the core (required)")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() > 0 {
-		return fmt.Errorf("unexpected arguments: %v", fs.Args())
-	}
-	if *token == "" {
-		return errors.New("--token is required")
-	}
-	// The token is a credential: it is never printed or logged.
-	fmt.Fprint(stdout, `enrol: token accepted (not used yet).
-Enrolment is a placeholder in WP0.1. From WP0.3 this command will:
-  1. generate a private key on this host (it never leaves the host),
-  2. send the one-time token and a CSR to the core over TLS,
-  3. store the returned client certificate for mTLS to /collector/v1,
-  4. pin the control plane's job-signing public key.
-`)
-	return nil
 }
 
 func runCmd(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string) error {
