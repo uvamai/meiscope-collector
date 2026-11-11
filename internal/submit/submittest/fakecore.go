@@ -224,6 +224,8 @@ type observation struct {
 // code, or "" when the observation is acceptable.
 func rejection(o observation) (code, msg string) {
 	switch {
+	case (o.Target.Kind == "host_port_sni" || o.Target.Kind == "ct_log") && o.Target.Port == 0:
+		return "invalid_target", "port is required for host_port_sni and ct_log"
 	case o.Target.Kind == "ct_log" && o.Target.SNI != "":
 		return "invalid_target", "a ct_log target has no sni"
 	case o.Target.Kind == "ct_log" && o.Method != "ct":
@@ -235,27 +237,27 @@ func rejection(o observation) (code, msg string) {
 	case o.CTEntry != nil && o.CTEntry.LogID != "" && !is32Bytes(o.CTEntry.LogID):
 		return "invalid_ct_entry", "ct_entry log_id must be the base64 of a 32-byte log ID"
 	case (o.Target.Kind == "store" || o.Target.Kind == "file") && o.Method != "adapter":
-		return "invalid_target", "store and file targets are read by method adapter only (proposed 0.5.0)"
+		return "invalid_target", "store and file targets are read by method adapter only (0.9.0)"
 	case (o.Target.Kind == "store" || o.Target.Kind == "file") && o.Target.Port != 0:
-		return "invalid_target", "store and file targets have no port (proposed 0.5.0)"
+		return "invalid_target", "store and file targets have no port (0.9.0)"
 	case (o.Target.Kind == "store" || o.Target.Kind == "file") && o.Target.SNI != "":
-		return "invalid_target", "store and file targets have no sni (proposed 0.5.0)"
+		return "invalid_target", "store and file targets have no sni (0.9.0)"
 	case o.Target.Kind == "store" && o.Target.Store == "":
-		return "invalid_target", "a store target needs store (proposed 0.5.0)"
+		return "invalid_target", "a store target needs store (0.9.0)"
 	case o.Target.Kind == "file" && o.Target.Path == "":
-		return "invalid_target", "a file target needs path (proposed 0.5.0)"
+		return "invalid_target", "a file target needs path (0.9.0)"
 	case o.Adapter != nil && o.Method != "adapter":
-		return "invalid_target", "adapter evidence is allowed with method adapter only (proposed 0.5.0)"
+		return "invalid_target", "adapter evidence is allowed with method adapter only (0.9.0)"
 	case o.Method == "adapter" && o.Adapter == nil:
-		return "invalid_target", "method adapter requires adapter evidence (proposed 0.5.0)"
+		return "invalid_target", "method adapter requires adapter evidence (0.9.0)"
 	case o.Target.Kind == "store" && o.Adapter.Certificate == nil:
-		return "invalid_target", "a store target needs adapter.certificate (proposed 0.5.0)"
+		return "invalid_target", "a store target needs adapter.certificate (0.9.0)"
 	case o.Target.Kind == "file" && o.Adapter.File == nil:
-		return "invalid_target", "a file target needs adapter.file (proposed 0.5.0)"
+		return "invalid_target", "a file target needs adapter.file (0.9.0)"
 	case len(o.ServedChain) > 0 && o.Outcome != "cert_seen":
 		return "chain_outcome_mismatch", "served_chain must be present exactly when outcome is cert_seen"
 	case o.Outcome == "cert_seen" && len(o.ServedChain) == 0 && (o.Adapter == nil || o.Adapter.Certificate == nil):
-		return "chain_outcome_mismatch", "outcome cert_seen needs served_chain (or, proposed 0.5.0, adapter.certificate)"
+		return "chain_outcome_mismatch", "outcome cert_seen needs served_chain (or adapter.certificate)"
 	}
 	return "", ""
 }

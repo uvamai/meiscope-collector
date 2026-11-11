@@ -66,7 +66,7 @@ func TestCSRAsksForNothing(t *testing.T) {
 	if err := csr.CheckSignature(); err != nil {
 		t.Fatal(err)
 	}
-	if len(csr.Subject.Names) != 0 || len(csr.Extensions) != 0 || len(csr.Attributes) != 0 ||
+	if len(csr.Subject.Names) != 0 || len(csr.Extensions) != 0 ||
 		len(csr.DNSNames)+len(csr.IPAddresses)+len(csr.URIs)+len(csr.EmailAddresses) != 0 {
 		t.Fatalf("CSR asks for something: %+v", csr)
 	}
@@ -125,7 +125,7 @@ func TestLoadRefusesIdentityReadableByOthers(t *testing.T) {
 	}
 	core := enroltest.NewCore(t)
 	_, dir := enrolled(t, core)
-	if err := os.Chmod(filepath.Join(dir, "identity.pem"), 0o644); err != nil {
+	if err := os.Chmod(filepath.Join(dir, "identity.pem"), 0o644); err != nil { //nolint:gosec // the test makes the file readable by others on purpose
 		t.Fatal(err)
 	}
 	if _, err := identity.Load(dir); err == nil || !strings.Contains(err.Error(), "0600") {

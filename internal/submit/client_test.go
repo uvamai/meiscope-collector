@@ -173,7 +173,15 @@ func TestFakeCoreAppliesContractRules(t *testing.T) {
 	}
 	shortLogID := ctObservation(3)
 	shortLogID.CTEntry.LogID = []byte{1, 2, 3}
-	res, err := cl.Submit(context.Background(), []submit.Observation{ctObservation(0), probeCTLog, withSNI, probeWithEntry, shortLogID})
+	// Since contract 0.9.0 the port rule is prose, not schema: the core
+	// answers it as a rejection.
+	noPort := submit.Observation{
+		Target: submit.Target{Kind: submit.KindHostPortSNI, Host: "10.0.0.2"},
+		Method: submit.MethodProbe, ObservedAt: t0, Outcome: submit.OutcomeTimeout,
+	}
+	ctNoPort := ctObservation(4)
+	ctNoPort.Target.Port = 0
+	res, err := cl.Submit(context.Background(), []submit.Observation{ctObservation(0), probeCTLog, withSNI, probeWithEntry, shortLogID, noPort, ctNoPort})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +189,7 @@ func TestFakeCoreAppliesContractRules(t *testing.T) {
 	for _, r := range res.Rejected {
 		codes = append(codes, strconv.Itoa(r.Index)+":"+r.Code)
 	}
-	want := []string{"1:invalid_target", "2:invalid_target", "3:invalid_ct_entry", "4:invalid_ct_entry"}
+	want := []string{"1:invalid_target", "2:invalid_target", "3:invalid_ct_entry", "4:invalid_ct_entry", "5:invalid_target", "6:invalid_target"}
 	if res.Accepted != 1 || !reflect.DeepEqual(codes, want) {
 		t.Fatalf("accepted %d, rejected %v, want %v", res.Accepted, codes, want)
 	}
@@ -220,22 +228,26 @@ func TestSpecValidator(t *testing.T) {
 		t.Fatalf("valid ct batch refused: %v", err)
 	}
 	bad := map[string]string{
-		"empty batch":         `{"observations":[]}`,
-		"extra property":      strings.Replace(valid, `"outcome"`, `"private_key":"x","outcome"`, 1),
-		"unknown method":      strings.Replace(valid, `"probe"`, `"guess"`, 1),
-		"port missing":        strings.Replace(valid, `,"port":443`, ``, 1),
-		"port too large":      strings.Replace(valid, `443`, `70000`, 1),
-		"bad time":            strings.Replace(valid, `2026-10-24T00:00:00Z`, `yesterday`, 1),
-		"not base64":          strings.Replace(valid, `"outcome":"timeout"`, `"outcome":"cert_seen","served_chain":["%%%"]`, 1),
-		"ct bad source":       strings.Replace(ct, `"source":"log"`, `"source":"google"`, 1),
-		"ct source missing":   strings.Replace(ct, `"source":"log",`, ``, 1),
-		"ct negative index":   strings.Replace(ct, `"entry_index":0`, `"entry_index":-1`, 1),
-		"ct index not int":    strings.Replace(ct, `"entry_index":0`, `"entry_index":"0"`, 1),
-		"ct log_id too long":  strings.Replace(ct, `AAA=`, `AAAAAAAA`, 1),
-		"ct bad timestamp":    strings.Replace(ct, `2026-10-23T00:00:00Z`, `1761177600000`, 1),
-		"ct_log port missing": strings.Replace(ct, `,"port":443`, ``, 1),
-		"old kind ct_entry":   strings.Replace(ct, `"kind":"ct_log"`, `"kind":"ct_entry"`, 1),
-		"old ct property":     strings.Replace(ct, `"ct_entry":`, `"ct":`, 1),
+		"empty batch":        `{"observations":[]}`,
+		"extra property":     strings.Replace(valid, `"outcome"`, `"private_key":"x","outcome"`, 1),
+		"unknown method":     strings.Replace(valid, `"probe"`, `"guess"`, 1),
+		"port too large":     strings.Replace(valid, `443`, `70000`, 1),
+		"bad time":           strings.Replace(valid, `2026-10-24T00:00:00Z`, `yesterday`, 1),
+		"not base64":         strings.Replace(valid, `"outcome":"timeout"`, `"outcome":"cert_seen","served_chain":["%%%"]`, 1),
+		"ct bad source":      strings.Replace(ct, `"source":"log"`, `"source":"google"`, 1),
+		"ct source missing":  strings.Replace(ct, `"source":"log",`, ``, 1),
+		"ct negative index":  strings.Replace(ct, `"entry_index":0`, `"entry_index":-1`, 1),
+		"ct index not int":   strings.Replace(ct, `"entry_index":0`, `"entry_index":"0"`, 1),
+		"ct log_id too long": strings.Replace(ct, `AAA=`, `AAAAAAAA`, 1),
+		"ct bad timestamp":   strings.Replace(ct, `2026-10-23T00:00:00Z`, `1761177600000`, 1),
+		"old kind ct_entry":  strings.Replace(ct, `"kind":"ct_log"`, `"kind":"ct_entry"`, 1),
+		"old ct property":    strings.Replace(ct, `"ct_entry":`, `"ct":`, 1),
+	}
+	// The adapter objects are additive (additionalProperties true): a reader
+	// ignores fields it does not know.
+	store := `{"observations":[{"target":{"kind":"store","host":"h","store":"s"},"method":"adapter","observed_at":"2026-10-24T00:00:00Z","outcome":"cert_seen","adapter":{"source":"osquery","later":1,"certificate":{"sha1":"` + strings.Repeat("ab", 20) + `"}}}]}`
+	if err := spec.Validate("ObservationBatch", []byte(store)); err != nil {
+		t.Fatalf("additive adapter object with an unknown field refused: %v", err)
 	}
 	for name, doc := range bad {
 		if err := spec.Validate("ObservationBatch", []byte(doc)); err == nil {

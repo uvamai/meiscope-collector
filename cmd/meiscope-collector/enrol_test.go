@@ -33,7 +33,7 @@ func TestEnrolCommandEndToEnd(t *testing.T) {
 	core := enroltest.NewCore(t)
 	dir := t.TempDir()
 	getenv := enrolEnv(core, dir)
-	const token = "mse1_cmd_secret_token"
+	const token = "mse1_cmd_secret_token" //nolint:gosec // a fake token for the fake core
 
 	out, errOut, err := runEnrol(t, getenv, token+"\n", "--token-file", "-")
 	if err != nil {

@@ -171,7 +171,7 @@ func Save(dir, core string, key crypto.Signer, cred Credentials) (*Store, error)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("state directory: %w", err)
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // a directory needs x; 0700 is owner-only
 		return nil, fmt.Errorf("state directory: %w", err)
 	}
 	s := &Store{dir: dir}

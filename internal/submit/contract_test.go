@@ -127,91 +127,54 @@ func schemaProps(t *testing.T, path string) (props map[string][]string, strict m
 	return props, strict
 }
 
-// TestProposedFieldsAreReviewed fixes the exact set of fields the proposal
-// adds, so a new field cannot slip in without this list (and the key guard
-// above, which covers every property name) seeing it. The new objects must
-// not close themselves with additionalProperties false: they are additive,
-// and the core must ignore unknown fields of them.
-func TestProposedFieldsAreReviewed(t *testing.T) {
-	newProps, strict := schemaProps(t, submittest.ProposedSpecPath())
-	oldProps, _ := schemaProps(t, submittest.VendoredSpecPath())
+// TestAdoptedFieldsAreReviewed fixes the exact set of fields the 0.5.0
+// proposal added and contract 0.9.0 adopted, so a new field cannot slip in
+// without this list (and the key guard above, which covers every property
+// name) seeing it. The adopted objects must not close themselves with
+// additionalProperties false: they are additive, and the core must ignore
+// unknown fields of them. The proposal and the vendored contract must agree
+// on every field, so the proposal file stays a faithful record.
+func TestAdoptedFieldsAreReviewed(t *testing.T) {
+	vendored, strict := schemaProps(t, submittest.VendoredSpecPath())
+	proposed, _ := schemaProps(t, submittest.ProposedSpecPath())
 	want := map[string]string{
 		"AdapterEvidence":     "certificate,custody,file,findings,source",
 		"CertificateMetadata": "authority_key_id,ca,common_name,issuer,key_algorithm,key_strength,not_after,not_before,self_signed,serial,sha1,signing_algorithm,subject,subject_key_id",
 		"FileDigest":          "mtime,owner,permissions,sha256,size,store_type",
 		"Custody":             "key_custody",
 		"Finding":             "code",
+		"Target":              "host,kind,path,port,sni,store",
 	}
 	for name, fields := range want {
-		if got := strings.Join(newProps[name], ","); got != fields {
+		if got := strings.Join(vendored[name], ","); got != fields {
 			t.Errorf("%s fields %s, reviewed %s", name, got, fields)
 		}
-		if strict[name] {
+		if got := strings.Join(proposed[name], ","); got != fields {
+			t.Errorf("proposal %s fields %s, reviewed %s", name, got, fields)
+		}
+		if name != "Target" && strict[name] {
 			t.Errorf("%s sets additionalProperties false; additive objects must let readers ignore unknown fields", name)
 		}
-		if _, existed := oldProps[name]; existed {
-			t.Errorf("%s exists in the vendored contract; it is not new", name)
-		}
 	}
-	added := func(schema string) []string {
-		var out []string
-		old := map[string]bool{}
-		for _, p := range oldProps[schema] {
-			old[p] = true
-		}
-		for _, p := range newProps[schema] {
-			if !old[p] {
-				out = append(out, p)
-			}
-		}
-		return out
-	}
-	if got := strings.Join(added("Target"), ","); got != "path,store" {
-		t.Errorf("Target gains %s", got)
-	}
-	if got := strings.Join(added("Observation"), ","); got != "adapter" {
-		t.Errorf("Observation gains %s", got)
-	}
-	for name := range newProps {
-		if _, ok := oldProps[name]; !ok {
-			if _, reviewed := want[name]; !reviewed {
-				t.Errorf("new schema %s is not in the reviewed list", name)
-			}
-		}
+	if !strings.Contains(","+strings.Join(vendored["Observation"], ",")+",", ",adapter,") {
+		t.Errorf("Observation fields %v lack adapter", vendored["Observation"])
 	}
 }
 
-func storeObs() submit.Observation { return storeObservation() }
-
-// TestCurrentCoreRejectsTheProposal is why the feature flag exists: the
-// core's current contract rejects store and file targets and the adapter
-// property, so nothing of it may be sent before the core adopts it.
-func TestCurrentCoreRejectsTheProposal(t *testing.T) {
+// TestCoreAcceptsAdapterObservations: contract 0.9.0 adopted store and file
+// targets and adapter evidence, so the current core accepts them. Sending
+// them stays behind MEISCOPE_FEATURE_LOCAL_STORE_V1 until that flag is
+// retired in its own change.
+func TestCoreAcceptsAdapterObservations(t *testing.T) {
 	core, err := submittest.NewCoreWithSpec(submittest.VendoredSpecPath())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer core.Close()
-	for name, o := range map[string]submit.Observation{"store": storeObs(), "file": fileObservation()} {
-		cl, _ := submit.New(core.URL, core.Client())
-		_, err := cl.Submit(context.Background(), []submit.Observation{o})
-		if !submit.IsPermanent(err) {
-			t.Errorf("%s: want a permanent refusal by the current contract, got %v", name, err)
-		}
-	}
-	if n := len(core.Batches()); n != 0 {
-		t.Fatalf("%d batches stored", n)
-	}
-	// And the proposed contract accepts what the current one refuses.
-	pcore, err := submittest.NewProposedCore()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pcore.Close()
-	cl, _ := submit.New(pcore.URL, pcore.Client())
+	cl, _ := submit.New(core.URL, core.Client())
 	res, err := cl.Submit(context.Background(), []submit.Observation{storeObs(), fileObservation()})
 	if err != nil || res.Accepted != 2 {
-		t.Fatalf("%+v %v", res, err)
+		t.Fatalf("%+v %v (errors %v)", res, err, core.Errors())
 	}
 }
 
