@@ -1,10 +1,13 @@
 // Command meiscope-collector is the Meiscope collector: an outbound-only
 // probe and adapter runner deployed in customer networks.
 //
-// run serves /healthz and, with a signed scope configured, probes the
-// scope's listed targets on its rescan schedule (D1). Enrolment against the
-// core arrives with D1b; until then scopes come from MEISCOPE_SCOPE_FILE,
-// verified against the pinned keys in MEISCOPE_SCOPE_KEYS.
+// run serves /healthz. A collector enrolled with "enrol" (an identity in
+// MEISCOPE_STATE_DIR) then talks to the core over mTLS only: it renews its
+// certificate, refreshes and verifies the signed scopes from the core, polls
+// Certificate Transparency for the owned domains and serves GET /status. A
+// collector that is not enrolled can instead probe the scope in
+// MEISCOPE_SCOPE_FILE, verified against the pinned keys in
+// MEISCOPE_SCOPE_KEYS, on its rescan schedule (D1).
 package main
 
 import (
@@ -21,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/uvamai/meiscope-collector/internal/identity"
 	"github.com/uvamai/meiscope-collector/internal/platform"
 	"github.com/uvamai/meiscope-collector/internal/submit"
 )
@@ -29,7 +33,8 @@ const usage = `Usage: meiscope-collector <command> [flags]
 
 Commands:
   version             print build information
-  run                 run the collector: /healthz, and the probe schedule when MEISCOPE_SCOPE_FILE is set (docs/probe.md)
+  run                 run the collector: /healthz; once enrolled, renewal, scopes and CT over mTLS (docs/install.md);
+                      not enrolled, the probe schedule when MEISCOPE_SCOPE_FILE is set (docs/probe.md)
   enrol --token-file F enrol with the core once: key on this host, certificate from the core (docs/install.md)
   ct-poll [--every 1h] poll Certificate Transparency for the owned domains (docs/ct.md)
   ct-baseline --domain D  coverage of the CT poller against the crt.sh baseline
@@ -107,6 +112,17 @@ func runCmd(ctx context.Context, args []string, stdout, stderr io.Writer, getenv
 	if err != nil {
 		return err
 	}
+	if identity.Exists(stateDir(getenv)) {
+		rt, err := newEnrolledRuntime(getenv, cfg, log, defaultEnrolledDeps())
+		if err != nil {
+			return err
+		}
+		ln, err := net.Listen("tcp", cfg.HealthAddr)
+		if err != nil {
+			return fmt.Errorf("listen %s: %w", cfg.HealthAddr, err)
+		}
+		return serveWith(ctx, ln, log, idleInterval, nil, rt)
+	}
 	var sub *submit.Client
 	if cfg.CoreURL != "" {
 		if sub, err = submit.New(cfg.CoreURL, nil, submit.WithLogger(log)); err != nil {
@@ -127,7 +143,20 @@ func runCmd(ctx context.Context, args []string, stdout, stderr io.Writer, getenv
 // serve runs the health server on ln, and the probe schedule when sched is
 // not nil, until ctx ends.
 func serve(ctx context.Context, ln net.Listener, log *slog.Logger, interval time.Duration, sched *probeSchedule) error {
+	return serveWith(ctx, ln, log, interval, sched, nil)
+}
+
+// serveWith is serve with, when rt is not nil, an enrolled collector's
+// calls to the core running alongside and GET /status served.
+func serveWith(ctx context.Context, ln net.Listener, log *slog.Logger, interval time.Duration, sched *probeSchedule, rt *enrolledRuntime) error {
 	handler := platform.HealthHandler()
+	if rt != nil {
+		handler = rt.handler(handler)
+		rtCtx, stopRT := context.WithCancel(ctx)
+		rtDone := make(chan struct{})
+		go func() { defer close(rtDone); rt.run(rtCtx) }()
+		defer func() { stopRT(); <-rtDone }()
+	}
 	if sched != nil {
 		handler = controlHandler(handler, sched.run, log)
 		probeCtx, stopProbe := context.WithCancel(ctx)
@@ -160,7 +189,10 @@ func serve(ctx context.Context, ln net.Listener, log *slog.Logger, interval time
 		case err := <-errc:
 			return fmt.Errorf("health server: %w", err)
 		case <-ticker.C:
-			if sched == nil {
+			switch {
+			case rt != nil:
+				rt.idle()
+			case sched == nil:
 				log.Info("idle: no scan scope configured (MEISCOPE_SCOPE_FILE)")
 			}
 		}

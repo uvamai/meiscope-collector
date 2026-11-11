@@ -358,6 +358,9 @@ func (s *Store) CollectorID() string {
 	return s.id
 }
 
+// Dir is the state directory the identity is kept in.
+func (s *Store) Dir() string { return s.dir }
+
 // CoreURL is the core URL the collector enrolled with.
 func (s *Store) CoreURL() string {
 	s.mu.RLock()

@@ -61,11 +61,10 @@ func ctPollCmd(ctx context.Context, args []string, stdout, stderr io.Writer, get
 	if cfg.CoreURL == "" && len(ctCfg.Domains) == 0 {
 		return errors.New("no owned domains: set MEISCOPE_CORE_URL to read them from the core, or MEISCOPE_CT_DOMAINS for a dry run")
 	}
-	poller, err := ctCfg.NewPoller(deps.rt, deps.clk, deps.creds(getenv))
+	poller, st, err := ctSetup(ctCfg, deps, getenv, log)
 	if err != nil {
 		return err
 	}
-	poller.Log = log
 	var sub *submit.Client
 	if cfg.CoreURL != "" {
 		sub, err = submit.New(cfg.CoreURL, deps.core, submit.WithClock(deps.clk), submit.WithUserAgent(ctCfg.UserAgent()), submit.WithLogger(log))
@@ -78,24 +77,42 @@ func ctPollCmd(ctx context.Context, args []string, stdout, stderr io.Writer, get
 	} else {
 		log.Warn("MEISCOPE_CORE_URL is not set: observations are written out, not submitted, and CT progress is not saved")
 	}
+	poll := func(ctx context.Context) error {
+		return pollOnce(ctx, poller, st, ctCfg.StateFile, sub, *out, stdout, log)
+	}
+	if *every == 0 {
+		return poll(ctx)
+	}
+	ctLoop(ctx, deps.clk, *every, poll, log)
+	return nil // stopped by a signal: a clean exit
+}
+
+// ctSetup builds the poller for ctCfg and loads its saved progress (shared
+// by ct-poll and an enrolled run).
+func ctSetup(ctCfg ct.Config, deps ctDeps, getenv func(string) string, log *slog.Logger) (*ct.Poller, *ct.State, error) {
+	poller, err := ctCfg.NewPoller(deps.rt, deps.clk, deps.creds(getenv))
+	if err != nil {
+		return nil, nil, err
+	}
+	poller.Log = log
 	st := ct.NewState()
 	if ctCfg.StateFile != "" {
 		if st, err = ct.LoadState(ctCfg.StateFile); err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
+	return poller, st, nil
+}
+
+// ctLoop polls, then waits every, until ctx ends. A failed poll is logged
+// and retried next cycle (ct-poll --every, and the enrolled run).
+func ctLoop(ctx context.Context, clk clock.Clock, every time.Duration, poll func(context.Context) error, log *slog.Logger) {
 	for {
-		if err := pollOnce(ctx, poller, st, ctCfg.StateFile, sub, *out, stdout, log); err != nil {
-			if *every == 0 {
-				return err
-			}
+		if err := poll(ctx); err != nil && ctx.Err() == nil {
 			log.Error("CT poll failed; retrying next cycle", "error", err)
 		}
-		if *every == 0 {
-			return nil
-		}
-		if err := deps.clk.Sleep(ctx, *every); err != nil {
-			return nil // stopped by a signal: a clean exit
+		if clk.Sleep(ctx, every) != nil {
+			return
 		}
 	}
 }
