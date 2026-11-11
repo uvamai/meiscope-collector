@@ -172,7 +172,7 @@ func TestCoreAcceptsAdapterObservations(t *testing.T) {
 	}
 	defer core.Close()
 	cl, _ := submit.New(core.URL, core.Client())
-	res, err := cl.Submit(context.Background(), []submit.Observation{storeObs(), fileObservation()})
+	res, err := cl.Submit(context.Background(), []submit.Observation{storeObservation(), fileObservation()})
 	if err != nil || res.Accepted != 2 {
 		t.Fatalf("%+v %v (errors %v)", res, err, core.Errors())
 	}

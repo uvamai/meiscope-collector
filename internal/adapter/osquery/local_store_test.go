@@ -204,8 +204,8 @@ func TestFileMetadataAndEncryptedStoreFinding(t *testing.T) {
 // TestFeatureFlag runs the adapter with MEISCOPE_FEATURE_LOCAL_STORE_V1 off
 // and on against the fake core configured with each contract. Off is the
 // default: the adapter emits nothing the core's current contract would
-// reject, and says what it skipped. On emits the proposed shape, which the
-// proposed contract accepts and the current one refuses.
+// reject, and says what it skipped. On emits the store and file shape,
+// which both accept since contract 0.9.0 adopted the proposal.
 func TestFeatureFlag(t *testing.T) {
 	vendored, err := submittest.NewCoreWithSpec(submittest.VendoredSpecPath())
 	if err != nil {
@@ -225,7 +225,7 @@ func TestFeatureFlag(t *testing.T) {
 		for _, tc := range []struct {
 			name string
 			core *submittest.Core
-		}{{"current contract 0.8.1", vendored}, {"proposed contract 0.5.0", proposed}} {
+		}{{"current contract 0.9.0", vendored}, {"proposed contract 0.5.0", proposed}} {
 			cl, _ := submit.New(tc.core.URL, tc.core.Client(), submit.WithRetry(retry.Policy{Attempts: 0}))
 			var accepted int
 			var serr error
@@ -239,13 +239,10 @@ func TestFeatureFlag(t *testing.T) {
 				if len(res.Observations) != 0 || serr != nil {
 					t.Errorf("flag off, %s: %d observations, %v", tc.name, len(res.Observations), serr)
 				}
-			case tc.core == proposed:
+			default:
+				// Contract 0.9.0 adopted the proposal: both cores accept it.
 				if serr != nil || accepted != len(res.Observations) || len(res.Observations) == 0 {
 					t.Errorf("flag on, %s: accepted %d of %d, %v", tc.name, accepted, len(res.Observations), serr)
-				}
-			default:
-				if !submit.IsPermanent(serr) {
-					t.Errorf("flag on, %s: want the current core to refuse the proposed shape, got %v", tc.name, serr)
 				}
 			}
 		}
