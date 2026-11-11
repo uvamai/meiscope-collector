@@ -5,7 +5,10 @@
 # Base images are pinned by digest (tags kept for readability); refresh both
 # together, never one alone.
 
-FROM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS build
+# The build stage runs on the build machine's platform and cross-compiles
+# (pure Go, CGO off), so an arm64 image needs no emulation: the final stage
+# only copies the binary.
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS build
 ARG VERSION=0.0.0-dev
 ARG COMMIT=none
 ARG TARGETOS=linux
