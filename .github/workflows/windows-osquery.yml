@@ -31,7 +31,7 @@ concurrency:
 
 env:
   GOTOOLCHAIN: local
-  GO_VERSION: "1.27.3"
+  GO_VERSION: "1.27.4"
   OSQUERY_VERSION: "5.12.1"
   OSQUERY_URL: https://github.com/osquery/osquery/releases/download/5.12.1/osquery-5.12.1.windows_x86_64.zip
   # osquery publishes no SHA-256 for this release. This value is the hash of

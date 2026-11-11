@@ -32,7 +32,7 @@ windows, a canary on new scopes, and a global pause.
 
 ## Quick start (development)
 
-Requirements: Go 1.27.3 (`GOTOOLCHAIN=local`), [Task](https://taskfile.dev),
+Requirements: Go 1.27.4 (`GOTOOLCHAIN=local`), [Task](https://taskfile.dev),
 golangci-lint v2, gofumpt, nFPM. Run `task doctor` to check.
 
 ```sh
