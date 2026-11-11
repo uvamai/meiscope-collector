@@ -13,7 +13,10 @@ ARG VERSION=0.0.0-dev
 ARG COMMIT=none
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
-ENV GOTOOLCHAIN=local CGO_ENABLED=0
+# GO-2026-6859 (net/http) is fixed in go1.27.4. Until the base image is
+# refreshed to golang:1.27.4-alpine by digest, the go command fetches the
+# go1.27.4 toolchain, verified against the Go checksum database.
+ENV GOTOOLCHAIN=go1.27.4 CGO_ENABLED=0
 WORKDIR /src
 COPY go.mod ./
 # go.sum does not exist while the module has no dependencies; the wildcard

@@ -15,7 +15,7 @@ permissions:
 
 env:
   GOTOOLCHAIN: local
-  GO_VERSION: "1.27.3"
+  GO_VERSION: "1.27.4"
   TASK_VERSION: "3.54.0"
   NFPM_VERSION: v2.48.0
   COSIGN_VERSION: v3.1.4

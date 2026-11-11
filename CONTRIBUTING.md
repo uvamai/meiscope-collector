@@ -13,7 +13,7 @@ Meiscope, licensed under Apache-2.0.
 ## Development
 
 ```sh
-task doctor   # check the toolchain (Go 1.27.3, task, golangci-lint, gofumpt, nFPM)
+task doctor   # check the toolchain (Go 1.27.4, task, golangci-lint, gofumpt, nFPM)
 task build
 task test
 task lint
