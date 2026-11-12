@@ -30,7 +30,8 @@ on. Custody is `unknown`.
 | `cluster` | cluster name for Secret locators |
 
 Credential `bearer_token` (optional, for an exporter behind an
-authenticating proxy). Permission needed: network reach to the metrics
+authenticating proxy). The adapter never follows a redirect (a 3xx answer
+is an error), so the token is sent to the configured URL only. Permission needed: network reach to the metrics
 endpoint only. Statistics: `series`, `unchanged`, `skipped_malformed_line`,
 `skipped_no_identity`, `skipped_no_not_after`, `skipped_no_locator`,
 `exporter_read_errors`, `skipped_feature_disabled`. Delta: a fingerprint per

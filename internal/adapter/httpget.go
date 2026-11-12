@@ -36,12 +36,18 @@ func IsStatus(err error, statuses ...int) bool {
 	return false
 }
 
+// NoRedirect is an http.Client CheckRedirect that refuses every redirect:
+// the 3xx answer is returned as is (Getter reports it as a StatusError), so
+// a bearer credential never follows a redirect to another host or scheme.
+func NoRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
 // ErrBodyTooLarge is returned when a response is larger than the limit.
 var ErrBodyTooLarge = errors.New("response body exceeds the adapter's size limit")
 
 // Getter performs read-only GET requests for an adapter: rate limited,
 // retried on 429 and 5xx with Retry-After honoured, with an optional bearer
-// credential that never appears in an error.
+// credential that never appears in an error. It never follows a redirect,
+// whatever the client's own CheckRedirect says.
 type Getter struct {
 	HTTP    *http.Client
 	Env     Env
@@ -66,10 +72,12 @@ func (g *Getter) Get(ctx context.Context, u *url.URL, accept string) ([]byte, er
 	if limit <= 0 {
 		limit = 64 << 20
 	}
-	hc := g.HTTP
-	if hc == nil {
-		hc = &http.Client{Timeout: time.Minute}
+	hc := &http.Client{Timeout: time.Minute}
+	if g.HTTP != nil {
+		c := *g.HTTP
+		hc = &c
 	}
+	hc.CheckRedirect = NoRedirect
 	path := u.Path
 	for attempt := 0; ; attempt++ {
 		if err := g.Limiter.Wait(ctx); err != nil {
@@ -94,7 +102,7 @@ func (g *Getter) Get(ctx context.Context, u *url.URL, accept string) ([]byte, er
 			}
 			err = fmt.Errorf("GET %s: %s", path, Redact(err.Error(), g.Bearer.Reveal()))
 		case resp.StatusCode == http.StatusOK:
-			b, rerr := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+			b, rerr := readBody(resp, limit)
 			_ = resp.Body.Close()
 			if rerr != nil {
 				return nil, fmt.Errorf("GET %s: read: %s", path, Redact(rerr.Error(), g.Bearer.Reveal()))
@@ -124,4 +132,17 @@ func (g *Getter) Get(ctx context.Context, u *url.URL, accept string) ([]byte, er
 			return nil, err
 		}
 	}
+}
+
+// readBody reads at most limit+1 bytes. With a declared Content-Length
+// within the limit the body is read into one buffer of that size, so no
+// intermediate copies of it are left behind for the garbage collector
+// (callers that zero the result zero the only copy).
+func readBody(resp *http.Response, limit int64) ([]byte, error) {
+	if n := resp.ContentLength; n > 0 && n <= limit {
+		b := make([]byte, n)
+		_, err := io.ReadFull(resp.Body, b)
+		return b, err
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, limit+1))
 }
