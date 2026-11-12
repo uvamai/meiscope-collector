@@ -121,7 +121,7 @@ func runCmd(ctx context.Context, args []string, stdout, stderr io.Writer, getenv
 		if err != nil {
 			return fmt.Errorf("listen %s: %w", cfg.HealthAddr, err)
 		}
-		return serveWith(ctx, ln, log, idleInterval, nil, rt)
+		return serveWith(ctx, ln, log, idleInterval, rt.sched, rt)
 	}
 	var sub *submit.Client
 	if cfg.CoreURL != "" {

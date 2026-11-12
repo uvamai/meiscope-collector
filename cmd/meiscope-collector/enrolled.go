@@ -39,11 +39,6 @@ const (
 	ctStateFile       = "ct-state.json"       // MEISCOPE_CT_STATE_FILE
 )
 
-// probingNote is what the status output and the start-up log say about
-// probing the core's scopes.
-const probingNote = "not available yet for scopes from the core: they are fetched, verified and held, " +
-	"but this build does not probe them (the probe schedule for enrolled collectors arrives with WP0.3)"
-
 // durationSetting reads a duration variable bounded to [lo, hi]; with
 // allowOff, "off" or "0" turns the feature off (0).
 func durationSetting(getenv func(string) string, name string, def, lo, hi time.Duration, allowOff bool) (time.Duration, error) {
@@ -91,6 +86,7 @@ type enrolledRuntime struct {
 	store   *identity.Store
 	sub     *submit.Client
 	scopes  *scopesync.Set
+	sched   *probeSchedule // probes the scopes in scopes; stopped on expiry
 	renewer *enrol.Renewer
 	refresh time.Duration
 	ctEvery time.Duration
@@ -162,6 +158,20 @@ func newEnrolledRuntime(getenv func(string) string, cfg platform.Config, log *sl
 		scopes:  scopesync.New(sub.Scopes, keys, tr, deps.clk, log),
 		renewer: &enrol.Renewer{Store: store, Client: ecl, Clock: deps.clk, Log: log},
 	}
+	// The probe schedule runs exactly the scopes the set holds now and
+	// verifies each again against the pinned keys, read on every tick (a
+	// renewal may rotate them). Nothing runs once the collector certificate
+	// has ended, even before the renewer notices, and no run outlives it.
+	// The schedule keeps its own in-memory version record; the set's record
+	// on disk already refuses rollbacks.
+	schedTracker, err := scope.LoadTracker("")
+	if err != nil {
+		return nil, err
+	}
+	rt.sched = newSchedule(func() ([]scope.Signed, error) { return rt.scopes.Signed(), nil }, keys, schedTracker, log)
+	rt.sched.deadline = store.NotAfter
+	rt.sched.clk = deps.clk
+	rt.sched.submit = submitTo(sub, log)
 	if ctEvery > 0 {
 		ctCfg, err := ct.LoadConfig(getenv)
 		if err != nil {
@@ -197,7 +207,6 @@ func (rt *enrolledRuntime) run(ctx context.Context) {
 	rt.log.InfoContext(ctx, "enrolled collector running", "collector_id", rt.store.CollectorID(), "core_url", rt.store.CoreURL(),
 		"certificate_not_after", rt.store.NotAfter(), "renew_at", rt.store.RenewAt(),
 		"scope_refresh", rt.refresh.String(), "ct_interval", ctInterval)
-	rt.log.WarnContext(ctx, "probing "+probingNote)
 	if !rt.clk.Now().Before(rt.store.NotAfter()) {
 		_, _ = rt.renewer.Step(ctx) // logs and records the expiry; calls nothing
 		rt.expire()
@@ -225,6 +234,7 @@ func (rt *enrolledRuntime) expire() {
 	rt.expired = true
 	rt.mu.Unlock()
 	rt.scopes.Stop("the collector certificate expired")
+	rt.sched.stopAll("the collector certificate expired")
 }
 
 func (rt *enrolledRuntime) isExpired() bool {
@@ -259,7 +269,7 @@ type enrolledStatus struct {
 	CoreURL     string           `json:"core_url"`
 	Certificate certificateState `json:"certificate"`
 	Scopes      scopesync.Status `json:"scopes"`
-	Probing     string           `json:"probing"`
+	Probing     scheduleStatus   `json:"probing"`
 	CT          ctPollState      `json:"ct"`
 }
 
@@ -293,7 +303,7 @@ func (rt *enrolledRuntime) status() enrolledStatus {
 			State: state, NotBefore: rt.store.NotBefore(), NotAfter: rt.store.NotAfter(), RenewAt: rt.store.RenewAt(), Renewal: rs,
 		},
 		Scopes:  rt.scopes.Status(),
-		Probing: probingNote,
+		Probing: rt.sched.status(),
 	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
