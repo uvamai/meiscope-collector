@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/clock"
+	"github.com/uvamai/meiscope-collector/internal/redirect"
 	"github.com/uvamai/meiscope-collector/internal/retry"
 	"github.com/uvamai/meiscope-collector/internal/scope"
 )
@@ -93,6 +94,7 @@ func New(base string, hc *http.Client, opts ...Option) (*Client, error) {
 	if hc == nil {
 		hc = &http.Client{Timeout: 60 * time.Second}
 	}
+	hc = redirect.Client(hc) // never replay a batch to a URL nobody configured
 	c := &Client{
 		base: u, hc: hc, clk: clock.System{}, policy: DefaultRetry, batch: MaxBatch, maxWire: MaxWireBytes,
 		log: slog.New(slog.DiscardHandler), unknown: map[string]bool{},
@@ -143,7 +145,7 @@ func (c *Client) Submit(ctx context.Context, obs []Observation) (Result, error) 
 func (c *Client) sendSplit(ctx context.Context, obs []Observation, offset int, res *Result) error {
 	body, err := encode(obs)
 	if err != nil {
-		return err
+		return fmt.Errorf("batch starting at observation %d: %w", offset, err)
 	}
 	if len(body) > c.maxWire {
 		if len(obs) == 1 {
@@ -190,10 +192,23 @@ func (c *Client) logUnknown(r Rejection) {
 	}
 }
 
+// encode returns the gzip-compressed JSON batch. It refuses a batch with
+// private-key armour in any field (ErrPrivateKeyMaterial): nothing that
+// looks like a private key is ever put on the wire.
 func encode(obs []Observation) ([]byte, error) {
+	raw, err := json.Marshal(ObservationBatch{Observations: obs})
+	if err != nil {
+		return nil, fmt.Errorf("encode batch: %w", err)
+	}
+	if containsPrivateKey(raw) {
+		if err := CheckObservations(obs); err != nil {
+			return nil, err
+		}
+		return nil, ErrPrivateKeyMaterial
+	}
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
-	if err := json.NewEncoder(zw).Encode(ObservationBatch{Observations: obs}); err != nil {
+	if _, err := zw.Write(append(raw, '\n')); err != nil {
 		return nil, fmt.Errorf("encode batch: %w", err)
 	}
 	if err := zw.Close(); err != nil {
@@ -273,6 +288,11 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, want 
 				return fmt.Errorf("decode answer: %w", derr)
 			}
 			return nil
+		case redirect.Is(resp):
+			rerr := redirect.Check(resp)
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDiscardedBytes))
+			_ = resp.Body.Close()
+			return &PermanentError{Status: resp.StatusCode, Problem: Problem{Title: "Redirect not followed", Status: resp.StatusCode, Detail: rerr.Error()}}
 		case retry.Retryable(resp.StatusCode):
 			hdr = resp.Header
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDiscardedBytes))

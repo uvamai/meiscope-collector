@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/clock"
+	"github.com/uvamai/meiscope-collector/internal/redirect"
 	"github.com/uvamai/meiscope-collector/internal/retry"
 )
 
@@ -64,6 +65,9 @@ func newHTTPClient(base http.RoundTripper, clk clock.Clock, p Politeness, userAg
 	return &http.Client{
 		Transport: &transport{base: base, clk: clk, p: p, userAgent: userAgent},
 		Timeout:   0, // per-request deadlines come from the context
+		// Never follow a redirect: the Cert Spotter API key goes to the
+		// configured host only.
+		CheckRedirect: redirect.Refuse,
 	}
 }
 
@@ -162,6 +166,9 @@ func getBytes(ctx context.Context, hc *http.Client, clk clock.Clock, url string,
 		return nil, fmt.Errorf("GET %s: %w", redactURL(url), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if rerr := redirect.Check(resp); rerr != nil {
+		return nil, fmt.Errorf("GET %s: %w", redactURL(url), rerr)
+	}
 	if resp.StatusCode != http.StatusOK {
 		ra, _ := retry.ParseRetryAfter(resp.Header, clk.Now())
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))

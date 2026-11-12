@@ -40,7 +40,12 @@ COPY --from=build /out/meiscope-collector /usr/bin/meiscope-collector
 # The enrolled identity (MEISCOPE_STATE_DIR); mount a volume here.
 COPY --from=build --chown=65532:65532 /out/state /var/lib/meiscope-collector
 # Inside a container the health endpoint listens on all interfaces so the
-# orchestrator can reach it; publish the port only on a private network.
+# orchestrator can reach GET /healthz; publish the port only on a private
+# network. /status, /pause and /resume still answer loopback callers only
+# (peer address and Host header); call them from a helper container in this
+# container's network namespace, e.g.
+#   docker run --rm --network container:<name> <curl image> -X POST http://127.0.0.1:8090/pause
+# (docs/install.md, "Local listener"). MEISCOPE_STATUS_REMOTE=true opens /status.
 ENV MEISCOPE_HEALTH_ADDR=0.0.0.0:8090
 EXPOSE 8090
 USER nonroot:nonroot

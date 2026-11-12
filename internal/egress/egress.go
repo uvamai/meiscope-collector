@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/credential"
+	"github.com/uvamai/meiscope-collector/internal/redirect"
 )
 
 // Config is the egress configuration (MEISCOPE_PROXY_URL,
@@ -40,7 +41,8 @@ type Config struct {
 	// CredentialRef names the proxy credential ("user:password", sent as
 	// Basic) in the credential source; empty: no proxy authentication.
 	CredentialRef string
-	// CABundle is a PEM file of extra trusted roots, added to the system pool.
+	// CABundle is a PEM file of extra trusted roots, added to the system pool
+	// (or used alone with Options.CABundleOnly).
 	CABundle string
 }
 
@@ -62,6 +64,12 @@ type Options struct {
 	// Getenv reads HTTPS_PROXY / NO_PROXY when no explicit proxy is set;
 	// nil uses http.ProxyFromEnvironment.
 	EnvProxy func(*http.Request) (*url.URL, error)
+	// CABundleOnly makes a configured CA bundle the only trusted roots,
+	// instead of adding it to the system pool. Enrolment uses it: the first
+	// contact, which sends the one-time token, trusts only the CA the
+	// operator gave (and an HTTPS proxy's CA must then be in that bundle).
+	// It has no effect when no bundle is configured.
+	CABundleOnly bool
 }
 
 // Transport returns an http.Transport for cfg. creds may be nil when no
@@ -71,8 +79,11 @@ func Transport(cfg Config, creds credential.Source, opts Options) (*http.Transpo
 	t.TLSHandshakeTimeout = 15 * time.Second
 	t.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	if cfg.CABundle != "" {
-		pool, err := x509.SystemCertPool()
-		if err != nil || pool == nil {
+		var pool *x509.CertPool
+		if !opts.CABundleOnly {
+			pool, _ = x509.SystemCertPool()
+		}
+		if pool == nil {
 			pool = x509.NewCertPool()
 		}
 		pem, err := os.ReadFile(filepath.Clean(cfg.CABundle))
@@ -177,7 +188,10 @@ func bypassed(host string, entries []string) bool {
 	return false
 }
 
-// Client wraps a transport in an http.Client with a timeout.
+// Client wraps a transport in an http.Client with a timeout. It never
+// follows a redirect: a 3xx answer comes back to the caller as it is
+// (redirect.Check turns it into an error), so a request body or a token is
+// never replayed to a URL nobody configured.
 func Client(t http.RoundTripper, timeout time.Duration) *http.Client {
-	return &http.Client{Transport: t, Timeout: timeout}
+	return &http.Client{Transport: t, Timeout: timeout, CheckRedirect: redirect.Refuse}
 }

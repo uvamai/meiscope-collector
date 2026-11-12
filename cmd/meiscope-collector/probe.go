@@ -184,20 +184,22 @@ func (s *probeSchedule) loop(ctx context.Context) {
 
 // controlHandler adds POST /pause and POST /resume to the local health
 // listener (127.0.0.1 by default). Pause cancels open probe connections at
-// once and refuses new ones until resume.
+// once and refuses new ones until resume. Both accept only loopback,
+// same-origin requests (requireLocal), whatever address the listener binds:
+// in a container, run them inside the container's network namespace.
 func controlHandler(health http.Handler, r *runner.Runner, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", health)
-	mux.HandleFunc("POST /pause", func(w http.ResponseWriter, req *http.Request) {
+	mux.HandleFunc("POST /pause", requireLocal(func(w http.ResponseWriter, req *http.Request) {
 		r.Pause()
 		log.WarnContext(req.Context(), "probing paused")
 		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("POST /resume", func(w http.ResponseWriter, req *http.Request) {
+	}))
+	mux.HandleFunc("POST /resume", requireLocal(func(w http.ResponseWriter, req *http.Request) {
 		r.Resume()
 		log.InfoContext(req.Context(), "probing resumed")
 		w.WriteHeader(http.StatusNoContent)
-	})
+	}))
 	return mux
 }
 

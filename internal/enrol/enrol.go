@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/uvamai/meiscope-collector/internal/identity"
+	"github.com/uvamai/meiscope-collector/internal/redirect"
 )
 
 // Endpoints below the core base URL.
@@ -79,7 +80,9 @@ func New(base string, hc *http.Client, userAgent string) (*Client, error) {
 	if hc == nil {
 		return nil, errors.New("enrol: no HTTP client")
 	}
-	return &Client{base: u, hc: hc, userAgent: userAgent}, nil
+	// Never follow a redirect: the token and the CSR go to the configured
+	// core only.
+	return &Client{base: u, hc: redirect.Client(hc), userAgent: userAgent}, nil
 }
 
 // Enrol redeems token with csr (PEM) and returns the issued credentials.
@@ -142,6 +145,9 @@ func (c *Client) post(ctx context.Context, path string, body []byte) (identity.C
 		return identity.Credentials{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if err := redirect.Check(resp); err != nil {
+		return identity.Credentials{}, err
+	}
 	if resp.StatusCode != http.StatusCreated {
 		return identity.Credentials{}, readError(resp)
 	}

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/adapter"
+	"github.com/uvamai/meiscope-collector/internal/redirect"
 	"github.com/uvamai/meiscope-collector/internal/submit"
 )
 
@@ -43,6 +44,9 @@ func (b *base) newClient(cfg adapter.Config, defRate float64) *client {
 	if hc == nil {
 		hc = &http.Client{Timeout: 60 * time.Second}
 	}
+	// Tokens and client secrets go to the configured endpoints only; the
+	// metadata-service client (directClient) copies this setting.
+	hc = redirect.Client(hc)
 	rate := defRate
 	if v, err := strconv.ParseFloat(cfg.Setting("rate_per_second", ""), 64); err == nil && v > 0 {
 		rate = v

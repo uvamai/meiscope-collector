@@ -24,3 +24,12 @@ paths = ['''^testdata/adapters/azure/(keyvault|entra)/[a-z0-9-]+\.json$''']
 regexes = [
   '''^\s*"(query|nextLink|@odata\.nextLink|@odata\.deltaLink)": "[^"]*\$(skiptoken|deltatoken)=(c2tpcHRva2VuLXBhZ2Ux|c2tpcC1wYWdlLTE|ZGVsdGEtdG9rZW4tMQ|ZGVsdGEtdG9rZW4tMg)",?$''',
 ]
+
+[[allowlists]]
+description = "PEM header lists (no key body) in the private-key guard tests of commit 641d012; the tests now build the headers at run time, this covers the two lines already in history"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^internal/(submit/guard_test|buffer/hardening_test)\.go$''']
+regexes = [
+  '''^\s*for _, armour := range \[\]string\{"-----BEGIN PRIVATE KEY-----", "-----BEGIN (EC|RSA) PRIVATE KEY-----", "-----BEGIN ENCRYPTED PRIVATE KEY-----", "-----BEGIN OPENSSH PRIVATE KEY-----"\} \{$''',
+]

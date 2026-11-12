@@ -40,7 +40,16 @@ core (valid 24 hours, single use). The collector:
    valid 30 days),
 3. keeps the key and certificate together in
    `/var/lib/meiscope-collector/identity.pem` (mode 0600, directory 0700),
-   and **pins** the core's CA bundle and scope-signing keys from the answer.
+   and **pins** the core's CA bundle and scope-signing keys from the answer
+   (`ca.pem`, `scope-keys.json`, `identity.json`, each mode 0600).
+
+On Linux and macOS, `run` refuses to load the identity when `identity.pem`
+can be read or written by group or others, when the directory, `ca.pem`,
+`scope-keys.json` or `identity.json` can be written by group or others, or
+when any of them is owned by a user other than the collector's user or root:
+each of them decides whom the collector trusts. The error names the file and
+the `chmod` to run. (Files written by older versions with mode 0644 are still
+accepted; they are readable, not writable, by others.)
 
 From then on the collector trusts only the pinned CA for the core, presents
 its certificate on every call (mTLS), and renews it at two thirds of its
@@ -49,12 +58,14 @@ lifetime with a new key.
 | Variable | Meaning |
 |---|---|
 | `MEISCOPE_CORE_URL` | the core's collector endpoint, `https://…` |
-| `MEISCOPE_CA_BUNDLE` | PEM file with the core's CA certificate, for the **first contact** only (the system roots are also trusted then). Without it, enrolment fails unless the core's certificate is publicly trusted; the token is never sent to a server the collector cannot verify. |
+| `MEISCOPE_CA_BUNDLE` | PEM file with the core's CA certificate, for the **first contact** only. When it is set, `enrol` trusts **only** this bundle, not the system roots, so a certificate any public CA issued for the core's name cannot receive the token. If an HTTPS proxy or a TLS-inspecting proxy sits in the path, its CA must be in the same file. Without it, the system roots apply: enrolment then works only if the core's certificate is publicly trusted. The token is never sent to a server the collector cannot verify. |
 | `MEISCOPE_STATE_DIR` | identity directory (default `/var/lib/meiscope-collector`) |
 
-Give the token through `--token-file PATH` or `--token-file -` (standard
-input) rather than `--token`: command-line arguments are visible to other
-users of the host. The token is never printed or logged.
+Give the token through `--token-file PATH`, or `--token-file -` to read it
+from standard input. The token is never printed or logged. The older
+`--token TOKEN` still works but is deprecated and prints a warning:
+command-line arguments are visible to other users of the host and are kept
+in shell history.
 
 If enrolment fails with "invalid, expired or already used", ask for a new
 token. To enrol again, stop the collector and move the state directory away
@@ -98,13 +109,34 @@ Environment variables of an enrolled `run` (all optional):
 | `MEISCOPE_CT_INTERVAL` | `1h` | how often CT is polled; `15m` to `24h`, or `off` |
 | `MEISCOPE_CT_STATE_FILE` | `<state dir>/ct-state.json` | CT progress (public data only); the other `MEISCOPE_CT_*` settings are in [ct.md](ct.md). `MEISCOPE_CT_DOMAINS` is ignored: the owned domains come from the core |
 | `MEISCOPE_PROXY_URL`, `MEISCOPE_NO_PROXY`, `MEISCOPE_PROXY_CREDENTIAL`, `HTTPS_PROXY`, `NO_PROXY` | none | the proxy for calls to the core ("Proxy" below); mTLS runs through the proxy's CONNECT tunnel |
-| `MEISCOPE_HEALTH_ADDR` | `127.0.0.1:8090` | the local listener of `/healthz` and `/status` |
+| `MEISCOPE_HEALTH_ADDR` | `127.0.0.1:8090` | the local listener of `/healthz` and `/status` ("Local listener" below) |
+| `MEISCOPE_STATUS_REMOTE` | `false` | `true` lets `GET /status` answer callers that are not on loopback |
 | `MEISCOPE_LOG_LEVEL`, `MEISCOPE_LOG_FORMAT` | `info`, `json` | logging |
 | `MEISCOPE_SCOPE_FILE`, `MEISCOPE_SCOPE_KEYS` | none | **must not be set** on an enrolled collector (configuration error) |
 
-`MEISCOPE_CA_BUNDLE` is used only for the first contact by `enrol`; every
-later call to the core trusts only the CA bundle pinned in the state
-directory.
+`MEISCOPE_CA_BUNDLE` is used only for the first contact by `enrol` (and
+then alone, without the system roots); every later call to the core trusts
+only the CA bundle pinned in the state directory.
+
+No HTTP client of the collector follows redirects (to the core, CT services
+or adapter APIs): a 3xx answer is an error that names the status and the
+target host, so a request body, token or key is never replayed to a URL
+nobody configured. Point the configuration at the final URL.
+
+### Local listener
+
+`MEISCOPE_HEALTH_ADDR` serves:
+
+| Path | Who may call it |
+|---|---|
+| `GET /healthz` | anyone who can reach the address (liveness for container probes) |
+| `GET /status` | loopback only: the caller's address **and** the `Host` header must be `localhost`, `127.0.0.1` or `[::1]` (any port). `MEISCOPE_STATUS_REMOTE=true` opens it to other callers |
+| `POST /pause`, `POST /resume` | loopback only, always, whatever address the listener binds ([probe.md](probe.md)) |
+
+Every path but `/healthz` also refuses cross-site requests: an `Origin`
+header, when present, must name a loopback host. Anything refused gets 403
+and changes nothing. The `Host` check stops a web page from reaching these
+endpoints through DNS rebinding; the address check stops other hosts.
 
 What an operator sees:
 
@@ -162,8 +194,21 @@ docker run -d --name meiscope-collector --restart unless-stopped \
   ghcr.io/uvamai/meiscope-collector@sha256:<digest>
 ```
 
-Inside the container `/healthz` and `/status` listen on `0.0.0.0:8090`;
-publish that port only on a private network, if at all.
+Inside the container the listener binds `0.0.0.0:8090` so the orchestrator
+can reach `/healthz`; publish that port only on a private network, if at all.
+`/status`, `/pause` and `/resume` still answer only loopback callers. The
+image has no shell or curl, so call them from a helper container that shares
+the collector's network namespace (its `127.0.0.1` is the collector's):
+
+```sh
+docker run --rm --network container:meiscope-collector \
+  curlimages/curl@sha256:<digest> -s http://127.0.0.1:8090/status
+```
+
+In Kubernetes, use `kubectl debug -it <pod> --image=<curl image> --target=<container>`
+or a sidecar, and call `http://127.0.0.1:8090/...` from there. Set
+`MEISCOPE_STATUS_REMOTE=true` only if a monitoring system must read
+`/status` over the network.
 
 ## Windows
 
@@ -209,7 +254,9 @@ replayed in order (docs/adapters.md).
 `HTTPS_PROXY`/`NO_PROXY` are honoured; `MEISCOPE_PROXY_URL` (an http or https
 proxy URL without user information) overrides them, and
 `MEISCOPE_PROXY_CREDENTIAL` names the credential holding `user:password` for
-proxy authentication. `MEISCOPE_CA_BUNDLE` adds trusted roots.
+proxy authentication. `MEISCOPE_CA_BUNDLE` adds trusted roots to the system
+pool for every command except `enrol`, which trusts only the bundle
+("Enrolment" above).
 
 ## Log-push receiver (optional, off by default)
 
@@ -225,7 +272,8 @@ liveness), so it is locked down:
 | `MEISCOPE_RECEIVER_ADDR=127.0.0.1:9100` | an IP literal that is loopback or private (10/8, 172.16/12, 192.168/16, fc00::/7). `0.0.0.0`, `::`, public, link-local (including 169.254.169.254) and 100.64.0.0/10 addresses are rejected when the configuration loads |
 | `MEISCOPE_RECEIVER_DIR` | spool directory (mode 0600 files) |
 | `MEISCOPE_RECEIVER_TOKEN_REF` | credential reference of the bearer token; every request needs `Authorization: Bearer ...` |
-| `MEISCOPE_RECEIVER_RATE` | requests per second (default 5, burst 10) |
+| `MEISCOPE_RECEIVER_RATE` | authenticated requests per second (default 5, burst 10). The token is checked first, so unauthenticated requests (401) never use up the limit |
+| `MEISCOPE_RECEIVER_MAX_SPOOL_BYTES` | the most the spool files (`push-*.jsonl`) may hold together (default 1073741824, 1 GiB; at least 1048576). A push that would pass it is refused with 507 and `Retry-After`, and the error says how full the spool is. The osquery adapter reads the spool but does not delete it: remove or rotate files it has read |
 
 The receiver speaks plain HTTP. Put a customer-controlled TLS terminator
 (nginx, HAProxy, a service mesh sidecar) in front of it whenever the pipeline

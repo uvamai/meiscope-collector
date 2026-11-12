@@ -96,7 +96,7 @@ queried (for example a single label) is skipped with a warning.
 | `MEISCOPE_CT_MAX_ENTRIES_PER_LOG` | `50000` | Entries read from each log per poll. |
 | `MEISCOPE_CT_STATE_FILE` | (none) | Where progress is kept (Cert Spotter cursors, log positions, fingerprints already sent), e.g. `/var/lib/meiscope-collector/ct-state.json`. Without it, every start begins afresh. Holds public CT data only. |
 | `MEISCOPE_CT_CONTACT` | (none) | Contact details added to the User-Agent. |
-| `MEISCOPE_CT_CERTSPOTTER_URL`, `MEISCOPE_CT_CRTSH_URL` | the public services | For tests and mirrors only. |
+| `MEISCOPE_CT_CERTSPOTTER_URL`, `MEISCOPE_CT_CRTSH_URL` | the public services | For tests and mirrors only. With a Cert Spotter API key configured, an `http://` Cert Spotter URL is refused (the key is never sent in clear text). Redirects are never followed. |
 | `MEISCOPE_CORE_URL` | (none) | The core: the owned domains are read from it and the observations submitted to it. Without it, `ct-poll` prints the observation batch instead of submitting it and saves no progress (a dry run). |
 
 ### The Cert Spotter API key

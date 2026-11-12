@@ -14,6 +14,7 @@ import (
 
 	"github.com/uvamai/meiscope-collector/internal/adapter"
 	"github.com/uvamai/meiscope-collector/internal/credential"
+	"github.com/uvamai/meiscope-collector/internal/redirect"
 	"github.com/uvamai/meiscope-collector/internal/retry"
 	"github.com/uvamai/meiscope-collector/internal/submit"
 )
@@ -123,6 +124,7 @@ func (a *Adapter) syncFleet(ctx context.Context, cfg adapter.Config, since adapt
 	if hc == nil {
 		hc = &http.Client{Timeout: 60 * time.Second}
 	}
+	hc = redirect.Client(hc) // the API token goes to the configured Fleet only
 	rate := 5.0
 	if v, err := strconv.ParseFloat(cfg.Setting("rate_per_second", ""), 64); err == nil && v > 0 {
 		rate = v
@@ -261,6 +263,10 @@ func (fc *fleetClient) get(ctx context.Context, path string, q url.Values, out a
 				return fmt.Errorf("fleet: GET %s: decode: %w", path, derr)
 			}
 			return nil
+		case redirect.Is(resp):
+			rerr := redirect.Check(resp)
+			_ = resp.Body.Close()
+			return fmt.Errorf("fleet: GET %s: %w", path, rerr)
 		case retry.Retryable(resp.StatusCode):
 			hdr = resp.Header
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))

@@ -21,7 +21,8 @@ The core signs each scope with Ed25519. The collector refuses a scope in any of 
 - it is expired or not yet valid;
 - it lacks an authorisation record;
 - it is older than, or conflicts with, a version already accepted;
-- it carries `cidrs`, `hosts` or `ports`, which are reserved and not supported in v1.
+- it carries `cidrs`, `hosts` or `ports`, which are reserved and not supported in v1;
+- any entry of its deny list is not an IP address, a CIDR, a DNS name or a DNS suffix (`.example.com` or `example.com`; both also deny subdomains). Wildcards (`*.example.com`), ranges, bracketed IPv6, ports, URLs and empty entries refuse the whole scope, so an exclusion is never silently ignored.
 
 The policy in a scope sets:
 
@@ -51,3 +52,14 @@ curl -X POST http://127.0.0.1:8090/resume
 ```
 
 Pause takes effect at once: open connections are cancelled and no new one starts until resume.
+
+`/pause` and `/resume` accept only loopback callers, whatever address the
+listener binds: the caller's address and the `Host` header must both be
+`localhost`, `127.0.0.1` or `[::1]`, and a browser's cross-site `Origin` is
+refused (403). In the container image, which has no shell or curl, call them
+from a helper container in the collector's network namespace:
+
+```sh
+docker run --rm --network container:meiscope-collector \
+  curlimages/curl@sha256:<digest> -s -X POST http://127.0.0.1:8090/pause
+```

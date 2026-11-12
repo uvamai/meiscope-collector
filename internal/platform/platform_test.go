@@ -30,6 +30,7 @@ func TestLoadConfigInvalid(t *testing.T) {
 		"bad addr":       {"MEISCOPE_HEALTH_ADDR": "8090"},
 		"bad level":      {"MEISCOPE_LOG_LEVEL": "loud"},
 		"bad log format": {"MEISCOPE_LOG_FORMAT": "xml"},
+		"bad remote":     {"MEISCOPE_STATUS_REMOTE": "sometimes"},
 	}
 	for name, m := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -42,15 +43,16 @@ func TestLoadConfigInvalid(t *testing.T) {
 
 func TestLoadConfigValid(t *testing.T) {
 	cfg, err := LoadConfig(env(map[string]string{
-		"MEISCOPE_CORE_URL":    "https://10.80.0.1",
-		"MEISCOPE_HEALTH_ADDR": ":9000",
-		"MEISCOPE_LOG_LEVEL":   "debug",
-		"MEISCOPE_LOG_FORMAT":  "text",
+		"MEISCOPE_CORE_URL":      "https://10.80.0.1",
+		"MEISCOPE_HEALTH_ADDR":   ":9000",
+		"MEISCOPE_LOG_LEVEL":     "debug",
+		"MEISCOPE_LOG_FORMAT":    "text",
+		"MEISCOPE_STATUS_REMOTE": "true",
 	}))
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	if cfg.CoreURL != "https://10.80.0.1" || cfg.HealthAddr != ":9000" {
+	if cfg.CoreURL != "https://10.80.0.1" || cfg.HealthAddr != ":9000" || !cfg.StatusRemote {
 		t.Fatalf("unexpected config %+v", cfg)
 	}
 }
