@@ -48,7 +48,7 @@ func copyFixtures(t *testing.T, name string, files ...string) []string {
 			t.Fatal(err)
 		}
 		p := filepath.Join(dir, f)
-		if err := os.WriteFile(p, b, 0o600); err != nil {
+		if err := os.WriteFile(p, b, 0o600); err != nil { // #nosec G703 -- a test temp file
 			t.Fatal(err)
 		}
 		if err := os.Chtimes(p, mtime, mtime); err != nil {

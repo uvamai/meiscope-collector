@@ -1,0 +1,10 @@
+# Exact gitleaks fingerprints (commit:file:rule:line) of a synthetic
+# placeholder, never key material: commit 5349f678fff60fc947b621905ad88ac17d06092b carried tls.key values that
+# were the base64 of a placeholder string in hand-made Kubernetes fixtures.
+# The next commit replaced them with a low-entropy placeholder; these lines
+# only let the pull request's commit range be scanned without rewriting
+# history. Do not add path or rule exceptions here.
+5349f678fff60fc947b621905ad88ac17d06092b:testdata/adapters/kubernetes/cluster/secrets-page1.json:generic-api-key:35
+5349f678fff60fc947b621905ad88ac17d06092b:testdata/adapters/kubernetes/cluster/secrets-page2.json:generic-api-key:32
+5349f678fff60fc947b621905ad88ac17d06092b:testdata/adapters/kubernetes/cluster/secrets-page2.json:generic-api-key:45
+5349f678fff60fc947b621905ad88ac17d06092b:testdata/adapters/kubernetes/optional-missing/secrets.json:generic-api-key:29

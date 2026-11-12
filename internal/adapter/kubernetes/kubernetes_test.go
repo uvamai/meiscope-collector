@@ -32,7 +32,7 @@ const saCred = "aaaa-bbbb-cccc-dddd-test-only" //nolint:gosec // synthetic test 
 
 // keyMarkers are the synthetic tls.key value of the fixtures, encoded and
 // decoded; they must never appear in observations, logs, stats or cursors.
-var keyMarkers = []string{"UExBQ0VIT0xERVItS0VZLU5FVkVSLVNFTlQ=", "PLACEHOLDER-KEY-NEVER-SENT"}
+var keyMarkers = []string{"a2V5a2V5a2V5a2V5a2V5a2V5a2V5a2V5", "keykeykeykeykeykeykeykey"}
 
 type mapSource map[string]string
 
@@ -362,7 +362,7 @@ func TestInClusterServiceAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), ca, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), ca, 0o600); err != nil { // #nosec G703 -- a test temp file
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "token"), []byte(saCred+"\n"), 0o600); err != nil {

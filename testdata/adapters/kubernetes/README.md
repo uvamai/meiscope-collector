@@ -6,7 +6,7 @@ All SYNTHETIC, hand-made (WP1.3); nothing here was recorded from a cluster.
   Certificates, Ingresses and Gateways. The certificates are freshly
   generated test certificates for `*.example.test` (public parts only; the
   keys were discarded). Every `tls.key` value is the base64 of the
-  placeholder `PLACEHOLDER-KEY-NEVER-SENT`, never key material; one Secret
+  placeholder `keykeykey...` (low entropy on purpose, so secret scanners do not mistake it for a key), never key material; one Secret
   carries a kubectl last-applied annotation holding that placeholder to
   prove it is never decoded.
 - `rbac-missing/`: a namespaced Secret list answered 403.
