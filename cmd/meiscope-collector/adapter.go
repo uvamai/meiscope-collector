@@ -17,7 +17,9 @@ import (
 	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/adapter"
-	"github.com/uvamai/meiscope-collector/internal/adapter/osquery" // registers the osquery adapter
+	_ "github.com/uvamai/meiscope-collector/internal/adapter/aws"        // registers the aws adapter
+	_ "github.com/uvamai/meiscope-collector/internal/adapter/cloudflare" // registers the cloudflare adapter
+	"github.com/uvamai/meiscope-collector/internal/adapter/osquery"      // registers the osquery adapter
 	"github.com/uvamai/meiscope-collector/internal/buffer"
 	"github.com/uvamai/meiscope-collector/internal/clock"
 	"github.com/uvamai/meiscope-collector/internal/credential"
@@ -252,6 +254,9 @@ func adapterRunCmd(ctx context.Context, args []string, stdout, stderr io.Writer,
 	}
 	if !feats.LocalStoreV1 {
 		log.Warn(adapter.EnvLocalStoreV1 + " is off: store and file observations (osquery) are counted and logged but not sent, because the core has not adopted them yet")
+	}
+	if !feats.CloudResourceV1 {
+		log.Warn(adapter.EnvCloudResourceV1 + " is off: cloud_resource observations (aws, cloudflare) are counted and logged but not sent, because the core has not adopted them yet")
 	}
 	env := adapter.Env{HTTP: hc, Creds: creds, Clock: deps.clk, Log: log, Features: feats}
 

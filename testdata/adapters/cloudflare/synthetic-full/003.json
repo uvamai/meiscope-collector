@@ -1,0 +1,71 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/client/v4/zones/0123456789abcdef0123456789abcdef/ssl/certificate_packs",
+  "query": "status=all&page=1&per_page=50",
+  "host": "api.cloudflare.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "success": true,
+   "errors": [],
+   "messages": [],
+   "result": [
+    {
+     "id": "3822ff90-ea29-44df-9e55-21300bb9419b",
+     "type": "universal",
+     "hosts": [
+      "example.test",
+      "*.example.test"
+     ],
+     "status": "active",
+     "validation_method": "txt",
+     "validity_days": 90,
+     "certificate_authority": "google",
+     "primary_certificate": "7e7b8deba8538af625850b7b2530034c",
+     "certificates": [
+      {
+       "id": "7e7b8deba8538af625850b7b2530034c",
+       "hosts": [
+        "example.test",
+        "*.example.test"
+       ],
+       "issuer": "Synthetic Edge CA",
+       "signature": "ECDSAWithSHA256",
+       "status": "active",
+       "bundle_method": "ubiquitous",
+       "zone_id": "0123456789abcdef0123456789abcdef",
+       "uploaded_on": "2026-10-01T00:00:00Z",
+       "modified_on": "2026-10-01T00:00:00Z",
+       "expires_on": "2026-12-30T00:00:00Z",
+       "serial_number": "0a1b2c3d4e5f"
+      },
+      {
+       "id": "9a7806061c88ada191ed06f989cc3dac",
+       "hosts": [
+        "example.test",
+        "*.example.test"
+       ],
+       "issuer": "Synthetic Edge CA",
+       "signature": "SHA256WithRSA",
+       "status": "active",
+       "zone_id": "0123456789abcdef0123456789abcdef",
+       "expires_on": "2026-12-30T00:00:00Z"
+      }
+     ]
+    }
+   ],
+   "result_info": {
+    "page": 1,
+    "per_page": 50,
+    "total_pages": 1,
+    "count": 1,
+    "total_count": 1
+   }
+  }
+ }
+}

@@ -1,0 +1,43 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/client/v4/zones/0123456789abcdef0123456789abcdef/custom_certificates",
+  "query": "page=1&per_page=50",
+  "host": "api.cloudflare.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "success": true,
+   "errors": [],
+   "messages": [],
+   "result": [
+    {
+     "id": "2458ce5a-0c35-4c7f-82c7-8e9487d3ff60",
+     "hosts": [
+      "custom.example.test"
+     ],
+     "issuer": "Synthetic Test CA",
+     "signature": "SHA256WithRSA",
+     "status": "active",
+     "bundle_method": "ubiquitous",
+     "zone_id": "0123456789abcdef0123456789abcdef",
+     "uploaded_on": "2026-09-01T00:00:00Z",
+     "modified_on": "2026-09-01T00:00:00Z",
+     "expires_on": "2027-06-01T00:00:00Z",
+     "priority": 1
+    }
+   ],
+   "result_info": {
+    "page": 1,
+    "per_page": 50,
+    "total_pages": 1,
+    "count": 1,
+    "total_count": 1
+   }
+  }
+ }
+}

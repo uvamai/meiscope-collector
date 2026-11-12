@@ -86,20 +86,33 @@ type Features struct {
 	// LocalStoreV1 enables store and file targets and adapter evidence
 	// (proposed contract 0.5.0). Environment: MEISCOPE_FEATURE_LOCAL_STORE_V1.
 	LocalStoreV1 bool
+	// CloudResourceV1 enables cloud_resource targets and cloud evidence
+	// (proposed contract 0.10.0). Environment: MEISCOPE_FEATURE_CLOUD_RESOURCE_V1.
+	CloudResourceV1 bool
 }
 
 // EnvLocalStoreV1 is the environment variable of Features.LocalStoreV1.
 const EnvLocalStoreV1 = "MEISCOPE_FEATURE_LOCAL_STORE_V1"
 
+// EnvCloudResourceV1 is the environment variable of Features.CloudResourceV1.
+const EnvCloudResourceV1 = "MEISCOPE_FEATURE_CLOUD_RESOURCE_V1"
+
 // LoadFeatures reads the feature switches through getenv; unset means off.
 func LoadFeatures(getenv func(string) string) (Features, error) {
 	var f Features
-	if v := strings.TrimSpace(getenv(EnvLocalStoreV1)); v != "" {
+	for _, sw := range []struct {
+		env string
+		dst *bool
+	}{{EnvLocalStoreV1, &f.LocalStoreV1}, {EnvCloudResourceV1, &f.CloudResourceV1}} {
+		v := strings.TrimSpace(getenv(sw.env))
+		if v == "" {
+			continue
+		}
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			return Features{}, fmt.Errorf("%s: want true or false, got %q", EnvLocalStoreV1, v)
+			return Features{}, fmt.Errorf("%s: want true or false, got %q", sw.env, v)
 		}
-		f.LocalStoreV1 = b
+		*sw.dst = b
 	}
 	return f, nil
 }

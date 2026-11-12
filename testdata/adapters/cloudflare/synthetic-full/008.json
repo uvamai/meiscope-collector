@@ -1,0 +1,27 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/client/v4/certificates",
+  "query": "zone_id=fedcba9876543210fedcba9876543210&page=1&per_page=50",
+  "host": "api.cloudflare.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "success": true,
+   "errors": [],
+   "messages": [],
+   "result": [],
+   "result_info": {
+    "page": 1,
+    "per_page": 50,
+    "total_pages": 0,
+    "count": 0,
+    "total_count": 2
+   }
+  }
+ }
+}

@@ -1,0 +1,36 @@
+{
+ "request": {
+  "method": "POST",
+  "path": "/",
+  "query": "",
+  "host": "acm.us-east-1.amazonaws.com",
+  "target": "CertificateManager.DescribeCertificate",
+  "body": {
+   "CertificateArn": "arn:aws:acm:us-east-1:111122223333:certificate/00000000-0000-4000-8000-000000000004"
+  }
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/x-amz-json-1.1"
+  },
+  "body": {
+   "Certificate": {
+    "CertificateArn": "arn:aws:acm:us-east-1:111122223333:certificate/00000000-0000-4000-8000-000000000004",
+    "DomainName": "api.example.test",
+    "SubjectAlternativeNames": [
+     "api.example.test",
+     "*.api.example.test"
+    ],
+    "Status": "ISSUED",
+    "Type": "IMPORTED",
+    "InUseBy": [
+     "arn:aws:cloudfront::111122223333:distribution/EDFDVBD6EXAMPLE"
+    ],
+    "RenewalEligibility": "INELIGIBLE",
+    "NotAfter": 1828965531.0,
+    "ImportedAt": 1794830331.0
+   }
+  }
+ }
+}

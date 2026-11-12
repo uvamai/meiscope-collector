@@ -1,0 +1,15 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/",
+  "query": "Action=ListServerCertificates&Version=2010-05-08&MaxItems=100",
+  "host": "iam.amazonaws.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "text/xml"
+  },
+  "body": "<ListServerCertificatesResponse xmlns=\"https://iam.amazonaws.com/doc/2010-05-08/\"><ListServerCertificatesResult><IsTruncated>true</IsTruncated><Marker>synthetic-iam-marker</Marker><ServerCertificateMetadataList><member><ServerCertificateId>ASCASYNTHETIC000001</ServerCertificateId><ServerCertificateName>legacy-example-test</ServerCertificateName><Path>/</Path><Arn>arn:aws:iam::111122223333:server-certificate/legacy-example-test</Arn><UploadDate>2026-11-11T13:58:51Z</UploadDate><Expiration>2027-12-14T13:58:51Z</Expiration></member></ServerCertificateMetadataList></ListServerCertificatesResult></ListServerCertificatesResponse>"
+ }
+}

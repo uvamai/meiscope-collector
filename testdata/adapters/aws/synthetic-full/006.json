@@ -1,0 +1,15 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/",
+  "query": "Action=DescribeLoadBalancers&Version=2015-12-01&PageSize=400",
+  "host": "elasticloadbalancing.ap-southeast-2.amazonaws.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "text/xml"
+  },
+  "body": "<DescribeLoadBalancersResponse xmlns=\"http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/\"><DescribeLoadBalancersResult><LoadBalancers><member><LoadBalancerArn>arn:aws:elasticloadbalancing:ap-southeast-2:111122223333:loadbalancer/app/web/0123456789abcdef</LoadBalancerArn><DNSName>web-1.ap-southeast-2.elb.example.test</DNSName><Scheme>internet-facing</Scheme><Type>application</Type><LoadBalancerName>web</LoadBalancerName></member></LoadBalancers><NextMarker>synthetic-marker-2</NextMarker></DescribeLoadBalancersResult><ResponseMetadata><RequestId>00000000-0000-4000-8000-0000000000a1</RequestId></ResponseMetadata></DescribeLoadBalancersResponse>"
+ }
+}

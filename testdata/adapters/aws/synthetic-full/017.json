@@ -1,0 +1,15 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/",
+  "query": "Action=DescribeLoadBalancers&Version=2012-06-01&PageSize=400",
+  "host": "elasticloadbalancing.us-east-1.amazonaws.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "text/xml"
+  },
+  "body": "<DescribeLoadBalancersResponse><DescribeLoadBalancersResult><LoadBalancerDescriptions/></DescribeLoadBalancersResult></DescribeLoadBalancersResponse>"
+ }
+}

@@ -1,0 +1,40 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/client/v4/zones/fedcba9876543210fedcba9876543210/ssl/certificate_packs",
+  "query": "status=all&page=1&per_page=50",
+  "host": "api.cloudflare.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "success": true,
+   "errors": [],
+   "messages": [],
+   "result": [
+    {
+     "id": "a77f8bd7-3b47-46b4-a6f1-75cf98109948",
+     "type": "advanced",
+     "hosts": [
+      "shop.example.test",
+      "www.shop.example.test"
+     ],
+     "status": "pending_validation",
+     "certificate_authority": "lets_encrypt",
+     "validity_days": 90,
+     "certificates": []
+    }
+   ],
+   "result_info": {
+    "page": 1,
+    "per_page": 50,
+    "total_pages": 1,
+    "count": 1,
+    "total_count": 1
+   }
+  }
+ }
+}

@@ -1,0 +1,15 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/",
+  "query": "Action=DescribeListenerCertificates&Version=2015-12-01&PageSize=400&ListenerArn=arn:aws:elasticloadbalancing:ap-southeast-2:111122223333:listener/app/web/0123456789abcdef/1111111111111111",
+  "host": "elasticloadbalancing.ap-southeast-2.amazonaws.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "text/xml"
+  },
+  "body": "<DescribeListenerCertificatesResponse><DescribeListenerCertificatesResult><Certificates><member><CertificateArn>arn:aws:acm:ap-southeast-2:111122223333:certificate/00000000-0000-4000-8000-000000000001</CertificateArn><IsDefault>true</IsDefault></member><member><CertificateArn>arn:aws:iam::111122223333:server-certificate/legacy-example-test</CertificateArn><IsDefault>false</IsDefault></member></Certificates></DescribeListenerCertificatesResult></DescribeListenerCertificatesResponse>"
+ }
+}

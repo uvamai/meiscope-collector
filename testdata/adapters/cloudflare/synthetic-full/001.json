@@ -1,0 +1,37 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/client/v4/zones",
+  "query": "page=1&per_page=50",
+  "host": "api.cloudflare.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "success": true,
+   "errors": [],
+   "messages": [],
+   "result": [
+    {
+     "id": "0123456789abcdef0123456789abcdef",
+     "name": "example.test",
+     "status": "active",
+     "account": {
+      "id": "00000000000000000000000000000001",
+      "name": "Synthetic"
+     }
+    }
+   ],
+   "result_info": {
+    "page": 1,
+    "per_page": 50,
+    "total_pages": 2,
+    "count": 1,
+    "total_count": 2
+   }
+  }
+ }
+}

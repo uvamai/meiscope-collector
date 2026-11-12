@@ -1,0 +1,15 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/",
+  "query": "Action=DescribeLoadBalancers&Version=2012-06-01&PageSize=400",
+  "host": "elasticloadbalancing.ap-southeast-2.amazonaws.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "text/xml"
+  },
+  "body": "<DescribeLoadBalancersResponse xmlns=\"http://elasticloadbalancing.amazonaws.com/doc/2012-06-01/\"><DescribeLoadBalancersResult><LoadBalancerDescriptions><member><LoadBalancerName>legacy</LoadBalancerName><DNSName>legacy-1.ap-southeast-2.elb.example.test</DNSName><Scheme>internet-facing</Scheme><ListenerDescriptions><member><Listener><Protocol>HTTPS</Protocol><LoadBalancerPort>443</LoadBalancerPort><InstanceProtocol>HTTP</InstanceProtocol><InstancePort>80</InstancePort><SSLCertificateId>arn:aws:iam::111122223333:server-certificate/legacy-example-test</SSLCertificateId></Listener><PolicyNames/></member><member><Listener><Protocol>HTTP</Protocol><LoadBalancerPort>80</LoadBalancerPort><InstanceProtocol>HTTP</InstanceProtocol><InstancePort>80</InstancePort></Listener></member></ListenerDescriptions></member></LoadBalancerDescriptions></DescribeLoadBalancersResult></DescribeLoadBalancersResponse>"
+ }
+}
