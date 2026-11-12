@@ -1,0 +1,19 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/v1.0/applications/delta",
+  "query": "$deltatoken=ZXhwaXJlZA"
+ },
+ "response": {
+  "status": 410,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "error": {
+    "code": "syncStateNotFound",
+    "message": "The sync state is no longer available."
+   }
+  }
+ }
+}

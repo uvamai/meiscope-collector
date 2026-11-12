@@ -1,0 +1,96 @@
+{
+ "request": {
+  "method": "POST",
+  "path": "/v1.0/security/runHuntingQuery",
+  "query": ""
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#microsoft.graph.security.huntingQueryResults",
+   "schema": [
+    {
+     "name": "MeiscopeKey",
+     "type": "String"
+    },
+    {
+     "name": "DeviceId",
+     "type": "String"
+    },
+    {
+     "name": "DeviceName",
+     "type": "String"
+    },
+    {
+     "name": "Thumbprint",
+     "type": "String"
+    },
+    {
+     "name": "Path",
+     "type": "String"
+    },
+    {
+     "name": "SerialNumber",
+     "type": "String"
+    },
+    {
+     "name": "IssuedTo",
+     "type": "String"
+    },
+    {
+     "name": "IssuedBy",
+     "type": "String"
+    },
+    {
+     "name": "IssueDate",
+     "type": "String"
+    },
+    {
+     "name": "ExpirationDate",
+     "type": "String"
+    },
+    {
+     "name": "KeySize",
+     "type": "String"
+    },
+    {
+     "name": "SignatureAlgorithm",
+     "type": "String"
+    }
+   ],
+   "results": [
+    {
+     "MeiscopeKey": "0123456789abcdef0123456789abcdef01234567|BA969CBDBE8805FFD8027E920D15D6B1FCAE24EC|03298650bfd367f5815dc022d89bdbf5e8148a6694705ef2d8a7b51c3b0cd1da",
+     "DeviceId": "0123456789abcdef0123456789abcdef01234567",
+     "DeviceName": "web01.contoso.example.test",
+     "Thumbprint": "BA969CBDBE8805FFD8027E920D15D6B1FCAE24EC",
+     "Path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\SystemCertificates\\My\\Certificates\\BA969CBDBE8805FFD8027E920D15D6B1FCAE24EC",
+     "SerialNumber": "1001",
+     "IssuedTo": "www.contoso.example.test",
+     "IssuedBy": "Meiscope Synthetic Test CA",
+     "IssueDate": "2026-11-12T14:04:38Z",
+     "ExpirationDate": "2027-11-12T14:04:38Z",
+     "KeySize": 256,
+     "SignatureAlgorithm": "sha256RSA"
+    },
+    {
+     "MeiscopeKey": "0123456789abcdef0123456789abcdef01234567|5D931E448022715A263F23B7747D545BABBB5156|350d69e13a9a716676074d53f3ea98fc3f0db2fb3468d90531c39d39da172994",
+     "DeviceId": "0123456789abcdef0123456789abcdef01234567",
+     "DeviceName": "web01.contoso.example.test",
+     "Thumbprint": "5D931E448022715A263F23B7747D545BABBB5156",
+     "Path": "HKEY_USERS\\S-1-5-21-1000-1000-1000-1001\\SOFTWARE\\Microsoft\\SystemCertificates\\My\\Certificates\\5D931E448022715A263F23B7747D545BABBB5156",
+     "SerialNumber": "1004",
+     "IssuedTo": "legacy.contoso.example.test",
+     "IssuedBy": "Meiscope Synthetic Test CA",
+     "IssueDate": "2026-11-12T14:04:38Z",
+     "ExpirationDate": "2026-12-12T14:04:38Z",
+     "KeySize": 256,
+     "SignatureAlgorithm": "sha256RSA"
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,82 @@
+{
+ "request": {
+  "method": "POST",
+  "path": "/v1.0/security/runHuntingQuery",
+  "query": "",
+  "body_contains": "0123456789abcdef0123456789abcdef01234567|5D931E448022715A263F23B7747D545BABBB5156|350d69e13a9a716676074d53f3ea98fc3f0db2fb3468d90531c39d39da172994"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "schema": [
+    {
+     "name": "MeiscopeKey",
+     "type": "String"
+    },
+    {
+     "name": "DeviceId",
+     "type": "String"
+    },
+    {
+     "name": "DeviceName",
+     "type": "String"
+    },
+    {
+     "name": "Thumbprint",
+     "type": "String"
+    },
+    {
+     "name": "Path",
+     "type": "String"
+    },
+    {
+     "name": "SerialNumber",
+     "type": "String"
+    },
+    {
+     "name": "IssuedTo",
+     "type": "String"
+    },
+    {
+     "name": "IssuedBy",
+     "type": "String"
+    },
+    {
+     "name": "IssueDate",
+     "type": "String"
+    },
+    {
+     "name": "ExpirationDate",
+     "type": "String"
+    },
+    {
+     "name": "KeySize",
+     "type": "String"
+    },
+    {
+     "name": "SignatureAlgorithm",
+     "type": "String"
+    }
+   ],
+   "results": [
+    {
+     "MeiscopeKey": "89abcdef0123456789abcdef0123456789abcdef|122EA81C2E0C3ED45F7F20CA936902DC027C4662|6d36ad481224c6f3113f93d7b415f1273c75cfc91b43a0f3ab6f92d84f610be0",
+     "DeviceId": "89abcdef0123456789abcdef0123456789abcdef",
+     "DeviceName": null,
+     "Thumbprint": "122EA81C2E0C3ED45F7F20CA936902DC027C4662",
+     "Path": "C:\\ProgramData\\Contoso\\agent\\client.cer",
+     "SerialNumber": "1002",
+     "IssuedTo": "app.contoso.example.test",
+     "IssuedBy": "Meiscope Synthetic Test CA",
+     "IssueDate": "2026-11-12T14:04:38Z",
+     "ExpirationDate": "2027-05-31T14:04:38Z",
+     "KeySize": 256,
+     "SignatureAlgorithm": "sha256RSA"
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,41 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/certificates/partner-manual",
+  "query": "api-version=7.4"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "id": "https://kv-contoso-prod.vault.azure.net/certificates/partner-manual/aa11bb22cc33dd44ee55ff6677889900",
+   "x5t": "XZMeRIAicVomPyO3dH1UW6u7UVY",
+   "attributes": {
+    "enabled": true,
+    "updated": 1762000000
+   },
+   "policy": {
+    "key_props": {
+     "exportable": true,
+     "kty": "RSA",
+     "key_size": 2048
+    },
+    "lifetime_actions": [
+     {
+      "trigger": {
+       "days_before_expiry": 30
+      },
+      "action": {
+       "action_type": "EmailContacts"
+      }
+     }
+    ],
+    "issuer": {
+     "name": "Unknown"
+    }
+   }
+  }
+ }
+}

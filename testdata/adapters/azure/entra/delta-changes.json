@@ -1,0 +1,30 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/v1.0/applications/delta",
+  "query": "$deltatoken=ZGVsdGEtdG9rZW4tMQ"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "@odata.deltaLink": "https://graph.microsoft.com/v1.0/applications/delta?$deltatoken=ZGVsdGEtdG9rZW4tMg",
+   "value": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000001",
+     "passwordCredentials": [
+      {
+       "endDateTime": "2028-01-31T00:00:00Z",
+       "hint": "Zr2",
+       "keyId": "dddddddd-0000-4000-8000-000000000009",
+       "secretText": null,
+       "startDateTime": "2026-11-13T00:00:00Z"
+      }
+     ]
+    }
+   ]
+  }
+ }
+}
