@@ -1,11 +1,14 @@
 // Package enroltest is a fake Meiscope core for tests: a TLS server with its
 // own test CA that serves the enrolment surface of collector contract 0.9.0
 // (POST /collector/v1/enrol, POST /collector/v1/certificate) and, over
-// mTLS, GET /collector/v1/scopes. Certificates are issued for the CSR's
+// mTLS, GET /collector/v1/scopes, GET /collector/v1/owned-domains and POST
+// /collector/v1/observations (the last two validated against the vendored
+// contract by a submittest core). Certificates are issued for the CSR's
 // public key, as the real core does.
 package enroltest
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/tls"
@@ -25,6 +28,7 @@ import (
 	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/identity"
+	"github.com/uvamai/meiscope-collector/internal/submit/submittest"
 	"github.com/uvamai/meiscope-collector/internal/testpki"
 )
 
@@ -47,6 +51,9 @@ type Core struct {
 	KeyID    string
 	// Lifetime of issued collector certificates (default 30 days).
 	Lifetime time.Duration
+	// Submit serves GET /owned-domains and POST /observations (after the
+	// mTLS check here): set its domains, read its batches.
+	Submit *submittest.Core
 
 	srv *httptest.Server
 	t   testing.TB
@@ -54,6 +61,10 @@ type Core struct {
 	mu       sync.Mutex
 	redeemed map[string]bool
 	scopes   []byte // GET /scopes answer
+	now      func() time.Time
+	failNext map[string][]int // path -> statuses answered once each, in order
+	failing  map[string]int   // path -> status answered until cleared
+	serials  map[string][]string
 	// ClientSerials records the serial of the client certificate of each
 	// authenticated request, in order.
 	ClientSerials []string
@@ -74,8 +85,15 @@ func NewCore(t testing.TB) *Core {
 	c := &Core{
 		CA: ca, ScopeKey: sk, KeyID: "scope-test-1", Lifetime: 30 * 24 * time.Hour,
 		t: t, redeemed: map[string]bool{}, Bodies: map[string][][]byte{},
-		scopes: []byte(`{"scopes":[]}`),
+		scopes: []byte(`{"scopes":[]}`), now: time.Now,
+		failNext: map[string][]int{}, failing: map[string]int{}, serials: map[string][]string{},
 	}
+	sub, err := submittest.NewCore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(sub.Close)
+	c.Submit = sub
 	leaf, key := ca.Issue(t, testpki.LeafTemplate("core.test", now.Add(-time.Hour), 24*time.Hour, "127.0.0.1"))
 	pool := x509.NewCertPool()
 	pool.AddCert(ca.Cert)
@@ -85,12 +103,67 @@ func NewCore(t testing.TB) *Core {
 		Certificates: []tls.Certificate{testpki.TLSCertificate(leaf, key)},
 		ClientAuth:   tls.VerifyClientCertIfGiven, // as the real core: /enrol needs none
 		ClientCAs:    pool,
+		Time:         c.Now, // client certificates are checked at the core's (settable) time
 	}
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	c.srv = srv
 	c.URL = srv.URL
 	return c
+}
+
+// SetNow sets the core's clock: issued certificates start at now() and client
+// certificates are verified at now(). Tests that drive the collector with a
+// fake clock give the core the same clock.
+func (c *Core) SetNow(now func() time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = now
+}
+
+// Now is the core's time.
+func (c *Core) Now() time.Time {
+	c.mu.Lock()
+	now := c.now
+	c.mu.Unlock()
+	return now()
+}
+
+// FailNext makes the next len(statuses) requests on path answer with these
+// statuses (a problem body), one each, before anything else is checked.
+func (c *Core) FailNext(path string, statuses ...int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.failNext[path] = append(c.failNext[path], statuses...)
+}
+
+// Fail makes every request on path answer with status until Fail(path, 0).
+func (c *Core) Fail(path string, status int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if status == 0 {
+		delete(c.failing, path)
+		return
+	}
+	c.failing[path] = status
+}
+
+// SetScopesRaw sets the GET /scopes answer to b as is (tampered lists).
+func (c *Core) SetScopesRaw(b []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.scopes = append([]byte(nil), b...)
+}
+
+// Sign signs payload with the core's scope key.
+func (c *Core) Sign(payload []byte) []byte { return ed25519.Sign(c.ScopeKey, payload) }
+
+// SerialsFor returns the client certificate serial of each request on path,
+// in order ("" for a request without a client certificate).
+func (c *Core) SerialsFor(path string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.serials[path]...)
 }
 
 // CAPEM is the core's CA certificate, PEM.
@@ -161,6 +234,17 @@ func (c *Core) LastClientSerial() string {
 	return c.ClientSerials[len(c.ClientSerials)-1]
 }
 
+// TotalRequests returns how many requests reached the core on any path.
+func (c *Core) TotalRequests() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, b := range c.Bodies {
+		n += len(b)
+	}
+	return n
+}
+
 // BodiesFor returns the request bodies received on path, in order.
 func (c *Core) BodiesFor(path string) [][]byte {
 	c.mu.Lock()
@@ -182,13 +266,24 @@ func problem(w http.ResponseWriter, status int, title string) {
 }
 
 func (c *Core) serve(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 16<<20))
+	serial := ""
 	c.mu.Lock()
 	c.Bodies[r.URL.Path] = append(c.Bodies[r.URL.Path], body)
 	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
-		c.ClientSerials = append(c.ClientSerials, r.TLS.PeerCertificates[0].SerialNumber.String())
+		serial = r.TLS.PeerCertificates[0].SerialNumber.String()
+		c.ClientSerials = append(c.ClientSerials, serial)
+	}
+	c.serials[r.URL.Path] = append(c.serials[r.URL.Path], serial)
+	forced := c.failing[r.URL.Path]
+	if q := c.failNext[r.URL.Path]; forced == 0 && len(q) > 0 {
+		forced, c.failNext[r.URL.Path] = q[0], q[1:]
 	}
 	c.mu.Unlock()
+	if forced != 0 {
+		problem(w, forced, http.StatusText(forced))
+		return
+	}
 
 	authed := r.TLS != nil && len(r.TLS.PeerCertificates) > 0
 	switch {
@@ -252,6 +347,14 @@ func (c *Core) serve(w http.ResponseWriter, r *http.Request) {
 		c.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(b)
+	case (r.Method == http.MethodGet && r.URL.Path == "/collector/v1/owned-domains") ||
+		(r.Method == http.MethodPost && r.URL.Path == "/collector/v1/observations"):
+		if !authed {
+			problem(w, http.StatusUnauthorized, "not authenticated")
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		c.Submit.Config.Handler.ServeHTTP(w, r)
 	default:
 		problem(w, http.StatusNotFound, "not found")
 	}
@@ -280,7 +383,7 @@ func (c *Core) issue(csrPEM string) (identity.Credentials, error) {
 	if len(csr.Subject.Names) != 0 || len(csr.Extensions) != 0 || len(csr.DNSNames) != 0 || len(csr.URIs) != 0 {
 		return identity.Credentials{}, fmt.Errorf("the CSR asks for something")
 	}
-	now := time.Now()
+	now := c.Now()
 	u, _ := url.Parse("urn:meiscope:collector:5e0c2a7d-0000-4000-8000-000000000001:" + CollectorID)
 	tmpl := &x509.Certificate{
 		NotBefore:   now.Add(-time.Minute),

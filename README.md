@@ -13,9 +13,14 @@ pipeline in `.github/workflows` and signed (cosign keyless, SBOM, provenance).
 > this host, client certificate for mTLS, pinned CA and scope-signing keys;
 > see [docs/install.md](docs/install.md#enrolment)); `ct-poll` /
 > `ct-baseline` read public Certificate Transparency data for your owned
-> domains ([docs/ct.md](docs/ct.md)); `run` probes the targets of a signed
-> scope ([docs/probe.md](docs/probe.md)). Scopes are still read from a
-> file; fetching them from the core over mTLS is the next release.
+> domains ([docs/ct.md](docs/ct.md)). Once enrolled, `run` is one process
+> that talks to the core over mTLS only: it renews its certificate, fetches
+> and verifies the signed scopes, polls CT for the owned domains and
+> reports its state on `GET /status`
+> ([docs/install.md](docs/install.md#running-an-enrolled-collector)).
+> Probing the scopes fetched from the core is not wired in yet; a collector
+> that is not enrolled can still probe a signed scope from a file
+> ([docs/probe.md](docs/probe.md)).
 
 ## What the collector sends, and what it never sends
 

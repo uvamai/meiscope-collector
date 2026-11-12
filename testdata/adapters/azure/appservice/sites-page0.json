@@ -1,0 +1,51 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/subscriptions/11111111-2222-3333-4444-555555555555/providers/Microsoft.Web/sites",
+  "query": "api-version=2023-12-01"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "value": [
+    {
+     "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-web/providers/Microsoft.Web/sites/app-contoso",
+     "name": "app-contoso",
+     "location": "australiaeast",
+     "properties": {
+      "hostNameSslStates": [
+       {
+        "name": "app.contoso.example.test",
+        "sslState": "SniEnabled",
+        "thumbprint": "122EA81C2E0C3ED45F7F20CA936902DC027C4662",
+        "hostType": "Standard"
+       },
+       {
+        "name": "app-contoso.azurewebsites.net",
+        "sslState": "Disabled",
+        "hostType": "Standard"
+       }
+      ]
+     }
+    },
+    {
+     "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-web/providers/Microsoft.Web/sites/api-contoso",
+     "name": "api-contoso",
+     "location": "australiaeast",
+     "properties": {
+      "hostNameSslStates": [
+       {
+        "name": "api.contoso.example.test",
+        "sslState": "SniEnabled",
+        "thumbprint": "A1B2C3D4E5F60718293A4B5C6D7E8F9012345678"
+       }
+      ]
+     }
+    }
+   ]
+  }
+ }
+}

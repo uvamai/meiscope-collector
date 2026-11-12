@@ -250,6 +250,8 @@ func checkType(t string, v any, path string) error {
 	return nil
 }
 
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
 func checkFormat(f string, v any, path string) error {
 	str, ok := v.(string)
 	if !ok {
@@ -263,6 +265,10 @@ func checkFormat(f string, v any, path string) error {
 	case "date-time":
 		if _, err := time.Parse(time.RFC3339Nano, str); err != nil {
 			return fmt.Errorf("%s: not date-time: %w", path, err)
+		}
+	case "uuid":
+		if !uuidPattern.MatchString(str) {
+			return fmt.Errorf("%s: not a uuid: %q", path, str)
 		}
 	default:
 		return fmt.Errorf("%s: unsupported format %q", path, f)

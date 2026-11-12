@@ -27,6 +27,8 @@ COPY . .
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
       -ldflags "-s -w -X github.com/uvamai/meiscope-collector/internal/platform.Version=${VERSION} -X github.com/uvamai/meiscope-collector/internal/platform.Commit=${COMMIT}" \
       -o /out/meiscope-collector ./cmd/meiscope-collector
+# An empty state directory, so a volume mounted on it is writable by nonroot.
+RUN mkdir -p /out/state
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 LABEL org.opencontainers.image.source="https://github.com/uvamai/meiscope-collector" \
@@ -35,6 +37,8 @@ LABEL org.opencontainers.image.source="https://github.com/uvamai/meiscope-collec
       org.opencontainers.image.authors="hello@meiscope.cloud" \
       org.opencontainers.image.title="meiscope-collector"
 COPY --from=build /out/meiscope-collector /usr/bin/meiscope-collector
+# The enrolled identity (MEISCOPE_STATE_DIR); mount a volume here.
+COPY --from=build --chown=65532:65532 /out/state /var/lib/meiscope-collector
 # Inside a container the health endpoint listens on all interfaces so the
 # orchestrator can reach it; publish the port only on a private network.
 ENV MEISCOPE_HEALTH_ADDR=0.0.0.0:8090

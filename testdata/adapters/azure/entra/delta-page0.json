@@ -1,0 +1,47 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/v1.0/applications/delta",
+  "query": "$select=id,appId,displayName,keyCredentials,passwordCredentials"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#applications",
+   "@odata.nextLink": "https://graph.microsoft.com/v1.0/applications/delta?$skiptoken=c2tpcC1wYWdlLTE",
+   "value": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000001",
+     "appId": "bbbbbbbb-0000-4000-8000-000000000001",
+     "displayName": "Contoso Payroll (synthetic)",
+     "keyCredentials": [
+      {
+       "customKeyIdentifier": "upacvb6IBf/YAn6SDRXWsfyuJOw=",
+       "displayName": "CN=payroll.contoso.example.test",
+       "endDateTime": "2027-11-12T14:04:38Z",
+       "key": null,
+       "keyId": "cccccccc-0000-4000-8000-000000000001",
+       "startDateTime": "2026-11-12T14:04:38Z",
+       "type": "AsymmetricX509Cert",
+       "usage": "Verify"
+      }
+     ],
+     "passwordCredentials": [
+      {
+       "customKeyIdentifier": null,
+       "displayName": "ci deploy",
+       "endDateTime": "2027-01-31T00:00:00Z",
+       "hint": "Qx7",
+       "keyId": "dddddddd-0000-4000-8000-000000000001",
+       "secretText": null,
+       "startDateTime": "2026-08-01T00:00:00Z"
+      }
+     ]
+    }
+   ]
+  }
+ }
+}
