@@ -206,9 +206,10 @@ func (s *Store) write(core string, key crypto.Signer, cred Credentials, p parsed
 		data []byte
 		perm fs.FileMode
 	}{
-		{caFile, []byte(cred.CABundle), 0o644},
-		{scopeKeysFile, append(keys, '\n'), 0o644},
-		{metaFile, append(m, '\n'), 0o644},
+		// Owner-only: Load refuses files other users can change.
+		{caFile, []byte(cred.CABundle), 0o600},
+		{scopeKeysFile, append(keys, '\n'), 0o600},
+		{metaFile, append(m, '\n'), 0o600},
 		{identityFile, idPEM, 0o600},
 	} {
 		if err := writeAtomic(s.dir, f.name, f.data, f.perm); err != nil {
@@ -257,8 +258,11 @@ func writeAtomic(dir, name string, data []byte, perm fs.FileMode) error {
 	return nil
 }
 
-// Load reads the identity in dir. It refuses an identity.pem that other
-// users can read or write (on systems with POSIX permissions).
+// Load reads the identity in dir. On systems with POSIX permissions it
+// refuses an identity.pem that other users can read or write, and a state
+// directory, ca.pem, scope-keys.json or identity.json that other users can
+// write or that another non-root user owns (checkPerm): each of them decides
+// whom the collector trusts.
 func Load(dir string) (*Store, error) {
 	idPath := filepath.Join(dir, identityFile)
 	st, err := os.Stat(idPath)
@@ -268,8 +272,19 @@ func Load(dir string) (*Store, error) {
 		}
 		return nil, err
 	}
-	if runtime.GOOS != "windows" && st.Mode().Perm()&0o077 != 0 {
+	if runtime.GOOS != "windows" && st.Mode().Perm()&denyOthersAny != 0 {
 		return nil, fmt.Errorf("%s is accessible by other users (mode %v); it must be 0600", idPath, st.Mode().Perm())
+	}
+	if err := checkPerm(idPath, denyOthersAny); err != nil {
+		return nil, err
+	}
+	if err := checkPerm(dir, denyOthersWrite); err != nil {
+		return nil, err
+	}
+	for _, name := range []string{caFile, scopeKeysFile, metaFile} {
+		if err := checkPerm(filepath.Join(dir, name), denyOthersWrite); err != nil {
+			return nil, err
+		}
 	}
 	raw, err := os.ReadFile(filepath.Clean(idPath))
 	if err != nil {
