@@ -26,7 +26,7 @@ func TestFleetDoesNotFollowRedirects(t *testing.T) {
 	}))
 	defer elsewhere.Close()
 	origin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, elsewhere.URL+r.URL.Path, http.StatusTemporaryRedirect)
+		http.Redirect(w, r, elsewhere.URL+"/moved", http.StatusTemporaryRedirect)
 	}))
 	defer origin.Close()
 	env, logs := newEnv(t, origin.Client().Transport)

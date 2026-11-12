@@ -10,34 +10,41 @@ import (
 	"github.com/uvamai/meiscope-collector/internal/redirect"
 )
 
-func resp(code int, loc string) *http.Response {
-	r := &http.Response{StatusCode: code, Header: http.Header{}, Request: &http.Request{URL: &url.URL{Scheme: "https", Host: "core.example.test", Path: "/x"}}}
+// check runs redirect.Check on a hand-made answer to a request for
+// https://core.example.test/x with the given status and Location.
+func check(code int, loc string) error {
+	r := &http.Response{
+		StatusCode: code, Header: http.Header{}, Body: http.NoBody,
+		Request: &http.Request{URL: &url.URL{Scheme: "https", Host: "core.example.test", Path: "/x"}},
+	}
+	defer func() { _ = r.Body.Close() }()
 	if loc != "" {
 		r.Header.Set("Location", loc)
 	}
-	return r
+	return redirect.Check(r)
 }
 
 func TestCheck(t *testing.T) {
 	for _, code := range []int{200, 201, 204, 304, 400, 404, 500} {
-		if err := redirect.Check(resp(code, "https://elsewhere.example.test/")); err != nil {
+		if err := check(code, "https://elsewhere.example.test/"); err != nil {
 			t.Errorf("%d: %v", code, err)
 		}
 	}
 	for _, code := range []int{300, 301, 302, 303, 307, 308} {
-		err := redirect.Check(resp(code, "https://elsewhere.example.test/steal?token=secret-value"))
+		err := check(code, "https://elsewhere.example.test/steal?token=secret-value")
 		if !errors.Is(err, redirect.ErrRefused) || !strings.Contains(err.Error(), "https://elsewhere.example.test") {
 			t.Errorf("%d: %v", code, err)
+			continue
 		}
 		if strings.Contains(err.Error(), "secret-value") || strings.Contains(err.Error(), "/steal") {
 			t.Errorf("%d: the error carries the Location path or query: %v", code, err)
 		}
 	}
 	// A relative Location resolves against the request; none at all is named as unknown.
-	if err := redirect.Check(resp(302, "/other")); err == nil || !strings.Contains(err.Error(), "https://core.example.test") {
+	if err := check(302, "/other"); err == nil || !strings.Contains(err.Error(), "https://core.example.test") {
 		t.Errorf("relative: %v", err)
 	}
-	if err := redirect.Check(resp(302, "")); !errors.Is(err, redirect.ErrRefused) || !strings.Contains(err.Error(), "unknown location") {
+	if err := check(302, ""); !errors.Is(err, redirect.ErrRefused) || !strings.Contains(err.Error(), "unknown location") {
 		t.Errorf("no Location: %v", err)
 	}
 	if redirect.Check(nil) != nil {

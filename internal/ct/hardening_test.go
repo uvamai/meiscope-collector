@@ -41,7 +41,7 @@ func TestCTClientDoesNotFollowRedirects(t *testing.T) {
 	}))
 	defer elsewhere.Close()
 	origin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, elsewhere.URL+"/v1/issuances?"+r.URL.RawQuery, http.StatusTemporaryRedirect)
+		http.Redirect(w, r, elsewhere.URL+"/v1/issuances", http.StatusTemporaryRedirect)
 	}))
 	defer origin.Close()
 	cs := NewCertSpotter(origin.URL, origin.Client().Transport, clock.NewFake(t0), CertSpotterPoliteness, "test", staticCreds{CertSpotterKeyRef: "k-1"})

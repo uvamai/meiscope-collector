@@ -25,7 +25,7 @@ func TestSubmitDoesNotFollowRedirects(t *testing.T) {
 	}))
 	defer elsewhere.Close()
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, elsewhere.URL+r.URL.Path, http.StatusTemporaryRedirect)
+		http.Redirect(w, r, elsewhere.URL+"/moved", http.StatusTemporaryRedirect)
 	}))
 	defer origin.Close()
 	for _, hc := range []*http.Client{nil, origin.Client()} {
