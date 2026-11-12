@@ -86,8 +86,9 @@ type Features struct {
 	// LocalStoreV1 enables store and file targets and adapter evidence
 	// (proposed contract 0.5.0). Environment: MEISCOPE_FEATURE_LOCAL_STORE_V1.
 	LocalStoreV1 bool
-	// CloudResourceV1 enables cloud_resource targets and cloud evidence
-	// (proposed contract 0.10.0). Environment: MEISCOPE_FEATURE_CLOUD_RESOURCE_V1.
+	// CloudResourceV1 enables cloud_resource targets and the adapter
+	// evidence fields of the proposed contract 0.10.0 (cloud adapters).
+	// Environment: MEISCOPE_FEATURE_CLOUD_RESOURCE_V1.
 	CloudResourceV1 bool
 }
 

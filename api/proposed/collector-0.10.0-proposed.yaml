@@ -6,6 +6,28 @@ info:
     Collector surface of the Meiscope core (ADR-0005: REST over mTLS,
     additive-only within /v1). The public collector repository vendors a copy
     of this file.
+
+    PROPOSAL (collector WP1.2, NOT adopted by the core): this file is the
+    core's 0.9.0 contract plus additive changes for adapters that read cloud
+    platforms (Azure Key Vault, App Gateway, App Service, Entra ID; designed
+    to serve AWS, Cloudflare and others too). api/collector.yaml stays
+    byte-identical to the core's file; the core adopts or rejects this
+    proposal in its own repository. The additions are:
+    target kind cloud_resource with target fields provider, resource_id,
+    resource_type and region; AdapterEvidence properties renewal_mode and
+    bindings (Binding); Custody property key_exportable; Finding codes
+    secret_credential_expiry and secret_not_read with Finding properties
+    not_after and credential_id. No new rejection code.
+    AWS and Cloudflare additions: AdapterEvidence properties in_use_by and
+    cloud_certificate (CloudCertificate).
+    Only public certificate data and metadata are carried: never private key
+    material, secret values, password hints or tokens (NFR-SEC-002).
+
+    Compatibility: additive within /v1. The core's 0.9.0 ingest rejects the
+    unknown kind and fields (Target has additionalProperties false), so the
+    core must adopt this version BEFORE a collector sends any of it. The
+    collector keeps all of it behind MEISCOPE_FEATURE_CLOUD_RESOURCE_V1 (off
+    by default).
     Every request is authenticated by the collector's mTLS client certificate,
     which identifies its tenant and collector record; no request body names a
     tenant. The one exception is POST /enrol, which a collector calls before
@@ -17,37 +39,6 @@ info:
     MEISCOPE_FEATURE_LOCAL_STORE_V1 is on (default on only in the demo
     profile); otherwise they are rejected with invalid_target and a message
     starting "local_store_disabled:".
-
-    PROPOSAL (collector WP1.2, NOT adopted by the core): this file is the
-    core's 0.9.0 contract plus additive changes for adapters that read cloud
-    provider APIs (AWS ACM, Elastic Load Balancing, IAM server certificates,
-    Cloudflare; also meant for Azure). api/collector.yaml stays
-    byte-identical to the core's file; the core adopts this proposal in its
-    own repository. The additions are: target kind cloud_resource and the
-    target field cloud (CloudResource: provider, service, resource_id,
-    region, account); AdapterEvidence properties hostnames, bindings
-    (Binding), renewal (Renewal), cloud_certificate (CloudCertificate) and
-    endpoint (Endpoint). Problems are rejected with the existing code
-    invalid_target (no new rejection code).
-    Rules for kind cloud_resource (stated here because the schema cannot
-    express them): method adapter only; no port and no sni; cloud is
-    required, and cloud is allowed with kind cloud_resource only; adapter
-    evidence is required. host is the API host that was read (for example
-    acm.ap-southeast-2.amazonaws.com or api.cloudflare.com). Outcome
-    cert_seen needs served_chain (the public certificate and chain the API
-    returned) or adapter.certificate; outcome reached is a resource read
-    without a certificate body and needs adapter.cloud_certificate or
-    adapter.endpoint or adapter.bindings.
-    renewal.mode external_automated is set only when the source proves that
-    it renews the certificate itself (ACM-issued certificates eligible for
-    managed renewal, Cloudflare-managed certificate packs); the core sets
-    the certificate's renewal_mode from it.
-    Compatibility: additive within /v1. The core's 0.9.0 ingest rejects the
-    unknown kind and the closed Target property cloud, so the core must
-    adopt this version before a collector sends any of it; the collector
-    keeps it behind MEISCOPE_FEATURE_CLOUD_RESOURCE_V1 (off by default). The
-    new objects are open (unknown properties ignored), except CloudResource,
-    which is a locator and part of target identity.
     No schema in this file may carry private-key material (NFR-SEC-002):
     observations carry certificates, never keys.
   license:
@@ -409,7 +400,7 @@ components:
       description: |
         0.9.0 (local store, O-07). What an adapter read from a system the
         customer already runs, stored as adapter evidence. Required with, and
-        allowed only with, method adapter and a store, file or (0.10.0-proposed)
+        allowed only with, method adapter and a store, file or (0.10.0)
         cloud_resource target. Unknown
         properties of this object and of the objects below it are accepted
         and ignored, so the collector can add fields; known properties are
@@ -435,96 +426,48 @@ components:
           maxItems: 16
           items:
             $ref: "#/components/schemas/Finding"
-        hostnames:
-          type: array
-          maxItems: 1000
-          description: 0.10.0-proposed. DNS names the source says the certificate or endpoint serves.
-          items:
-            type: string
-            minLength: 1
-            maxLength: 253
-        bindings:
-          type: array
-          maxItems: 1000
-          description: |
-            0.10.0-proposed. On a certificate: the resources that use it (for
-            example ACM's InUseBy). On a listener: the certificates it presents.
-          items:
-            $ref: "#/components/schemas/Binding"
-        renewal:
-          $ref: "#/components/schemas/Renewal"
-        cloud_certificate:
-          $ref: "#/components/schemas/CloudCertificate"
-        endpoint:
-          $ref: "#/components/schemas/Endpoint"
-    Binding:
-      type: object
-      additionalProperties: true
-      description: 0.10.0-proposed. One end of a certificate-to-resource link. Unknown properties are ignored.
-      required: [resource_id]
-      properties:
-        resource_id:
-          type: string
-          minLength: 1
-          maxLength: 2048
-        service:
-          type: string
-          maxLength: 64
-        region:
-          type: string
-          maxLength: 64
-        hostnames:
-          type: array
-          maxItems: 1000
-          items:
-            type: string
-            minLength: 1
-            maxLength: 253
-        port:
-          type: integer
-          minimum: 1
-          maximum: 65535
-        protocol:
-          type: string
-          maxLength: 32
-        is_default:
-          type: boolean
-    Renewal:
-      type: object
-      additionalProperties: true
-      description: |
-        0.10.0-proposed. What the source proves about who renews the
-        certificate. Unknown properties are ignored.
-      required: [mode]
-      properties:
-        mode:
+        renewal_mode:
           type: string
           enum: [external_automated, manual, unknown]
           description: |
-            external_automated: the source renews it itself (ACM managed
-            renewal, Cloudflare-managed packs, Key Vault auto-renew); the core
-            sets renewal_mode external_automated. manual: the source holds an
-            uploaded or imported certificate it does not renew. unknown: the
-            source does not say.
-        managed_by:
-          type: string
-          pattern: "^[a-z][a-z0-9_]{0,63}$"
-          description: The renewing system, for example aws_acm or cloudflare.
-        status:
-          type: string
-          maxLength: 64
-          description: The source's renewal status, verbatim.
-        eligibility:
-          type: string
-          maxLength: 64
-          description: The source's renewal eligibility, verbatim.
+            0.10.0. How the certificate is renewed, only as far as the source
+            proves it: external_automated when the platform renews it itself
+            (a Key Vault certificate with an integrated issuer and an
+            AutoRenew lifetime action, an App Service managed certificate,
+            an ACM-issued certificate); manual when the source shows it is an
+            uploaded or imported certificate nothing renews; else unknown.
+        bindings:
+          type: array
+          maxItems: 256
+          description: |
+            0.10.0. Where the platform serves or uses the certificate, as the
+            source reports it (for example App Service host-name bindings and
+            App Gateway HTTPS listeners). Read from configuration, never
+            probed.
+          items:
+            $ref: "#/components/schemas/Binding"
+        in_use_by:
+          type: array
+          maxItems: 256
+          description: |
+            0.10.0. Provider identifiers of resources the source says use the
+            certificate when no host name is known (ACM InUseBy: load balancer,
+            CloudFront distribution and API Gateway ARNs).
+          items:
+            type: string
+            minLength: 1
+            maxLength: 2048
+        cloud_certificate:
+          $ref: "#/components/schemas/CloudCertificate"
     CloudCertificate:
       type: object
       additionalProperties: true
       description: |
-        0.10.0-proposed. Provider metadata of a certificate whose body the API
-        does not return (so there is no served_chain and no sha1). Public
-        data only. Unknown properties are ignored.
+        0.10.0. The provider's metadata of a certificate, for sources whose
+        API does not return the certificate itself (Cloudflare edge and custom
+        certificates, ACM certificates not yet issued): there is then no
+        served_chain and no sha1, and outcome is reached. Public data only.
+        Unknown properties are ignored.
       required: [id]
       properties:
         id:
@@ -534,9 +477,11 @@ components:
         type:
           type: string
           maxLength: 64
+          description: The source's certificate type, verbatim (ACM AMAZON_ISSUED, IMPORTED, PRIVATE; Cloudflare universal, advanced, custom).
         status:
           type: string
           maxLength: 64
+          description: The source's status, verbatim.
         issuer:
           type: string
           maxLength: 4096
@@ -549,24 +494,35 @@ components:
         not_after:
           type: string
           format: date-time
-    Endpoint:
+        hostnames:
+          type: array
+          maxItems: 1000
+          description: Names the certificate covers, as the source lists them.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 253
+    Binding:
       type: object
       additionalProperties: true
-      description: 0.10.0-proposed. A listener's address as the provider reports it. Unknown properties are ignored.
+      description: 0.10.0. One place a cloud certificate is bound. Unknown properties are ignored.
+      required: [hostname]
       properties:
-        dns_name:
+        hostname:
           type: string
+          minLength: 1
           maxLength: 253
+          description: Host name the binding serves (may be a wildcard such as "*.example.com").
         port:
           type: integer
           minimum: 1
           maximum: 65535
-        protocol:
+          description: Port of the binding when the source states it.
+        resource_id:
           type: string
-          maxLength: 32
-        scheme:
-          type: string
-          maxLength: 32
+          minLength: 1
+          maxLength: 2048
+          description: Provider identifier of the resource that holds the binding (an Azure resource ID of a site or listener, an ARN).
     CertificateMetadata:
       type: object
       additionalProperties: true
@@ -654,6 +610,9 @@ components:
           type: string
           enum: [present, absent, unknown]
           description: Whether the store holds a key pair for the certificate. Never the key itself.
+        key_exportable:
+          type: boolean
+          description: 0.10.0. Whether the platform allows the key to be exported, when the source states it (Key Vault key_props.exportable). Never the key itself.
     Finding:
       type: object
       additionalProperties: true
@@ -664,7 +623,7 @@ components:
       properties:
         code:
           type: string
-          enum: [keystore_not_parsed]
+          enum: [keystore_not_parsed, secret_credential_expiry, secret_not_read]
           description: |
             keystore_not_parsed: the file is a keystore container (.p12, .pfx,
             .jks or .kdb) whose content the collector does not parse. It may
@@ -672,6 +631,23 @@ components:
             and never guesses, defaults or brute-forces passwords. The finding
             carries the file path (target.path) and size (adapter.file.size)
             only.
+            0.10.0: secret_credential_expiry: a non-certificate credential
+            (an Entra ID application password credential, an API key) whose
+            expiry the source reports; the finding carries not_after and
+            credential_id only, never the value or its hint.
+            secret_not_read: a secret that may hold a certificate (Key Vault
+            content type application/x-pem-file or application/x-pkcs12)
+            which the collector was not configured to read, or holds a
+            container it does not open.
+        not_after:
+          type: string
+          format: date-time
+          description: 0.10.0. Expiry of the credential a secret_credential_expiry finding names.
+        credential_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: 0.10.0. The source's identifier of that credential (an Entra keyId GUID), never its value.
     CTEntry:
       type: object
       additionalProperties: false
@@ -717,10 +693,14 @@ components:
             adapter only); file: a keystore or certificate file on host (path
             required, method adapter only). port is required for
             host_port_sni and ct_log and absent for store and file. Other
-            kinds (cloud resource) are added additively. 0.10.0-proposed:
-            cloud_resource: a certificate or binding read from a cloud
-            provider's API (cloud required, method adapter only, no port or
-            sni; host is the API host read).
+            kinds (cloud resource) are added additively.
+            0.10.0: cloud_resource: a certificate or credential held by a
+            cloud platform resource, read through the platform's management
+            API (provider and resource_id required, method adapter only, no
+            port or sni). host is then the API host the record was read
+            from (for example "management.azure.com",
+            "contoso.vault.azure.net", "graph.microsoft.com"); the resource
+            is identified by provider and resource_id.
         host:
           type: string
           minLength: 1
@@ -770,41 +750,27 @@ components:
           minLength: 1
           maxLength: 4096
           description: 0.9.0. Absolute file path on host for kind file (or the file a store entry was read from).
-        cloud:
-          $ref: "#/components/schemas/CloudResource"
-    CloudResource:
-      type: object
-      additionalProperties: false
-      description: |
-        0.10.0-proposed. Locator of a resource in a cloud provider's API, for
-        kind cloud_resource only. Provider-neutral: one shape for AWS, Azure,
-        Cloudflare and others. Part of target identity, so closed.
-      required: [provider, service, resource_id]
-      properties:
         provider:
           type: string
           pattern: "^[a-z][a-z0-9_]{0,31}$"
-          description: The cloud, for example aws, azure, gcp or cloudflare.
-        service:
-          type: string
-          pattern: "^[a-z][a-z0-9_]{0,63}$"
-          description: |
-            The provider's resource type, for example acm, elbv2_listener,
-            elb_listener, iam_server_certificate, certificate_pack,
-            custom_certificate, origin_ca_certificate, key_vault_certificate.
+          description: 0.10.0. Cloud provider of a cloud_resource target, for example "azure", "aws", "cloudflare".
         resource_id:
           type: string
           minLength: 1
           maxLength: 2048
-          description: The provider's identifier (an ARN, an Azure resource ID, a Cloudflare object ID).
+          description: |
+            0.10.0. The provider's identifier of the resource for kind
+            cloud_resource: an Azure resource ID or Key Vault object ID
+            without version, an AWS ARN, a Cloudflare zone and certificate
+            pack ID. Stable across versions of the same certificate.
+        resource_type:
+          type: string
+          maxLength: 256
+          description: 0.10.0. The provider's resource type, for example "Microsoft.KeyVault/vaults/certificates" or "AWS::CertificateManager::Certificate".
         region:
           type: string
           maxLength: 64
-          description: The provider region; absent for global resources.
-        account:
-          type: string
-          maxLength: 128
-          description: The account, subscription or zone that holds the resource.
+          description: 0.10.0. Provider region or location of the resource, when it has one.
     TLSParams:
       type: object
       additionalProperties: false

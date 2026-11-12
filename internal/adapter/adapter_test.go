@@ -294,3 +294,18 @@ func TestFixtureTransport(t *testing.T) {
 		t.Fatal("duplicate accepted")
 	}
 }
+
+func TestLoadFeaturesCloudResource(t *testing.T) {
+	env := map[string]string{adapter.EnvCloudResourceV1: "true"}
+	f, err := adapter.LoadFeatures(func(k string) string { return env[k] })
+	if err != nil || !f.CloudResourceV1 || f.LocalStoreV1 {
+		t.Fatalf("%+v %v", f, err)
+	}
+	if f, err := adapter.LoadFeatures(func(string) string { return "" }); err != nil || f.CloudResourceV1 {
+		t.Fatalf("default: %+v %v", f, err)
+	}
+	env[adapter.EnvCloudResourceV1] = "perhaps"
+	if _, err := adapter.LoadFeatures(func(k string) string { return env[k] }); err == nil {
+		t.Fatal("bad value accepted")
+	}
+}
