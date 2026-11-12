@@ -188,6 +188,27 @@ type AdapterEvidence struct {
 	// RenewalMode and Bindings are PROPOSED in contract 0.10.0.
 	RenewalMode string    `json:"renewal_mode,omitempty"`
 	Bindings    []Binding `json:"bindings,omitempty"`
+	// InUseBy and CloudCertificate are PROPOSED in contract 0.10.0 by the
+	// AWS and Cloudflare adapters (additions to the Azure proposal).
+	// InUseBy lists provider IDs of resources the source says use the
+	// certificate (ACM InUseBy ARNs) where no host name is known.
+	InUseBy []string `json:"in_use_by,omitempty"`
+	// CloudCertificate is the provider's metadata of a certificate whose
+	// body the API does not return (so there is no served_chain or sha1).
+	CloudCertificate *CloudCertificate `json:"cloud_certificate,omitempty"`
+}
+
+// CloudCertificate is provider metadata of a certificate (schema
+// CloudCertificate, PROPOSED 0.10.0). Public data only.
+type CloudCertificate struct {
+	ID        string     `json:"id"`
+	Type      string     `json:"type,omitempty"`
+	Status    string     `json:"status,omitempty"`
+	Issuer    string     `json:"issuer,omitempty"`
+	Serial    string     `json:"serial,omitempty"`
+	NotBefore *time.Time `json:"not_before,omitempty"`
+	NotAfter  *time.Time `json:"not_after,omitempty"`
+	Hostnames []string   `json:"hostnames,omitempty"`
 }
 
 // Renewal modes of AdapterEvidence.renewal_mode (PROPOSED 0.10.0).

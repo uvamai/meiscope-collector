@@ -24,3 +24,12 @@ paths = ['''^testdata/adapters/azure/(keyvault|entra)/[a-z0-9-]+\.json$''']
 regexes = [
   '''^\s*"(query|nextLink|@odata\.nextLink|@odata\.deltaLink)": "[^"]*\$(skiptoken|deltatoken)=(c2tpcHRva2VuLXBhZ2Ux|c2tpcC1wYWdlLTE|ZGVsdGEtdG9rZW4tMQ|ZGVsdGEtdG9rZW4tMg)",?$''',
 ]
+
+[[allowlists]]
+description = "ACM key-algorithm names (an enum, not a secret) in synthetic AWS fixtures of an earlier commit of WP1.2; generic-api-key matched \"KeyAlgorithm\": \"EC_prime256v1\""
+condition = "AND"
+regexTarget = "line"
+paths = ['''^testdata/adapters/aws/synthetic-full/[0-9]{3}\.json$''']
+regexes = [
+  '''^\s*"KeyAlgorithm": "(RSA_(1024|2048|3072|4096)|EC_(prime256v1|secp384r1|secp521r1))",?$''',
+]

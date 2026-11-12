@@ -10,6 +10,10 @@
 // request may also name "body_contains": the exchange then matches only a
 // request whose body contains that text (several exchanges may share a
 // method, path and query when they differ by it, as POST queries do).
+// "host" and "target" (the X-Amz-Target header of AWS JSON APIs) narrow a
+// match the same way, for multi-region APIs whose operations share a path.
+// A response whose Content-Type is not JSON (the XML of AWS Query APIs) has
+// its body written as a JSON string and is served as that string's text.
 package fixture
 
 import (
@@ -46,6 +50,10 @@ type Exchange struct {
 		Query  string `json:"query"`
 		// BodyContains, when set, must occur in the request body.
 		BodyContains string `json:"body_contains,omitempty"`
+		// Host and Target, when set, must equal the request's host and
+		// X-Amz-Target header.
+		Host   string `json:"host,omitempty"`
+		Target string `json:"target,omitempty"`
 	} `json:"request"`
 	Response struct {
 		Status  int               `json:"status"`
@@ -89,7 +97,7 @@ func Load(dir string) (*Transport, error) {
 		}
 		k := key(ex.Request.Method, ex.Request.Path, q)
 		for _, prev := range t.byKey[k] {
-			if prev.Request.BodyContains == ex.Request.BodyContains {
+			if prev.Request.BodyContains == ex.Request.BodyContains && prev.Request.Host == ex.Request.Host && prev.Request.Target == ex.Request.Target {
 				return nil, fmt.Errorf("fixture %s: duplicate exchange %s", f, k)
 			}
 		}
@@ -137,7 +145,11 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	var ex Exchange
 	ok := false
 	// An exchange naming body text wins over one that does not.
+	host, target := r.URL.Hostname(), r.Header.Get("X-Amz-Target")
 	for _, cand := range t.byKey[key(r.Method, r.URL.Path, r.URL.Query())] {
+		if (cand.Request.Host != "" && !strings.EqualFold(cand.Request.Host, host)) || (cand.Request.Target != "" && cand.Request.Target != target) {
+			continue
+		}
 		if cand.Request.BodyContains != "" && bytes.Contains(body, []byte(cand.Request.BodyContains)) {
 			ex, ok = cand, true
 			break
@@ -157,10 +169,28 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 		StatusCode: ex.Response.Status,
 		Status:     fmt.Sprintf("%d %s", ex.Response.Status, http.StatusText(ex.Response.Status)),
 		Header:     h,
-		Body:       io.NopCloser(bytes.NewReader(ex.Response.Body)),
+		Body:       io.NopCloser(bytes.NewReader(responseBody(ex))),
 		Request:    r,
 		Proto:      "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
 	}, nil
+}
+
+// responseBody returns the bytes to serve: the JSON as recorded, or for a
+// non-JSON Content-Type the text of a JSON string body.
+func responseBody(ex Exchange) []byte {
+	ct := ""
+	for k, v := range ex.Response.Headers {
+		if strings.EqualFold(k, "Content-Type") {
+			ct = v
+		}
+	}
+	if ct != "" && !strings.Contains(ct, "json") {
+		var text string
+		if json.Unmarshal(ex.Response.Body, &text) == nil {
+			return []byte(text)
+		}
+	}
+	return ex.Response.Body
 }
 
 // Requests returns the requests seen so far, in order.

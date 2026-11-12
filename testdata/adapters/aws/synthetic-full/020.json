@@ -1,0 +1,15 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/",
+  "query": "Action=GetServerCertificate&Version=2010-05-08&ServerCertificateName=legacy-example-test",
+  "host": "iam.amazonaws.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "text/xml"
+  },
+  "body": "<GetServerCertificateResponse><GetServerCertificateResult><ServerCertificate><ServerCertificateMetadata><ServerCertificateName>legacy-example-test</ServerCertificateName><Arn>arn:aws:iam::111122223333:server-certificate/legacy-example-test</Arn><Expiration>2027-12-14T13:58:51Z</Expiration></ServerCertificateMetadata><CertificateBody>\u002d\u002d\u002d\u002d\u002dBEGIN CERTIFICATE\u002d\u002d\u002d\u002d\u002d\nMIIB0zCCAXmgAwIBAgIIHFSD1mIOgfwwCgYIKoZIzj0EAwIwOTEbMBkGA1UECgwS\nTWVpc2NvcGUgU3ludGhldGljMRowGAYDVQQDDBFTeW50aGV0aWMgVGVzdCBDQTAe\nFw0yNjExMTIxMzU4NTFaFw0yNzEyMTQxMzU4NTFaMB4xHDAaBgNVBAMME2xlZ2Fj\neS5leGFtcGxlLnRlc3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQ6wuK6Po8Y\nBamxXnUNobupKFyHfcog94Ixho4nUo0sjCWLnulXnIngFgliuv9WEx/8/molDcGO\nfCZY16CPrqtAo4GFMIGCMDUGA1UdEQQuMCyCE2xlZ2FjeS5leGFtcGxlLnRlc3SC\nFSoubGVnYWN5LmV4YW1wbGUudGVzdDAJBgNVHRMEAjAAMB0GA1UdDgQWBBQH+Swf\nolcAA1y0ztVuIcEnPc1ftTAfBgNVHSMEGDAWgBRvhNu5Vh1OX2Nmf5bkiumma+qH\nGzAKBggqhkjOPQQDAgNIADBFAiEAnYR9PK7M8T3ShXEpQT53s8hfH4TQ3c9WuhEI\nfE3MvuYCICtTRvtrtLTaw453xls8zG9TkB/KsEA4d7F5glDBVHlW\n\u002d\u002d\u002d\u002d\u002dEND CERTIFICATE\u002d\u002d\u002d\u002d\u002d\n</CertificateBody><CertificateChain>\u002d\u002d\u002d\u002d\u002dBEGIN CERTIFICATE\u002d\u002d\u002d\u002d\u002d\nMIIBtjCCAVugAwIBAgICEAEwCgYIKoZIzj0EAwIwOTEbMBkGA1UECgwSTWVpc2Nv\ncGUgU3ludGhldGljMRowGAYDVQQDDBFTeW50aGV0aWMgVGVzdCBDQTAeFw0yNjEx\nMTIxMzU4NTFaFw0zNjExMDkxMzU4NTFaMDkxGzAZBgNVBAoMEk1laXNjb3BlIFN5\nbnRoZXRpYzEaMBgGA1UEAwwRU3ludGhldGljIFRlc3QgQ0EwWTATBgcqhkjOPQIB\nBggqhkjOPQMBBwNCAATdoFH5lbw6N7dQS4xSlGiS4Ksu7e0qoBGriKeTXzKC8n9x\nJpm99f+NcXfM6htEtxsZ8NItMKZJ6XeIRCIkzBLFo1MwUTAdBgNVHQ4EFgQUb4Tb\nuVYdTl9jZn+W5IrppmvqhxswHwYDVR0jBBgwFoAUb4TbuVYdTl9jZn+W5Irppmvq\nhxswDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNJADBGAiEA0fpIT3xW5dtH\neMPyFIshBmb27O9iqjT9GzPCtPTHyBkCIQCjJoOdpn0Rm8sZEwF/pbt10OKZwteh\nUgVoFHCNxx9AOQ==\n\u002d\u002d\u002d\u002d\u002dEND CERTIFICATE\u002d\u002d\u002d\u002d\u002d\n</CertificateChain></ServerCertificate></GetServerCertificateResult></GetServerCertificateResponse>"
+ }
+}

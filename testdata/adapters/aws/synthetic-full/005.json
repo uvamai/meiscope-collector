@@ -1,0 +1,29 @@
+{
+ "request": {
+  "method": "POST",
+  "path": "/",
+  "query": "",
+  "host": "acm.ap-southeast-2.amazonaws.com",
+  "target": "CertificateManager.DescribeCertificate",
+  "body_contains": "arn:aws:acm:ap-southeast-2:111122223333:certificate/00000000-0000-4000-8000-000000000002"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/x-amz-json-1.1"
+  },
+  "body": {
+   "Certificate": {
+    "CertificateArn": "arn:aws:acm:ap-southeast-2:111122223333:certificate/00000000-0000-4000-8000-000000000002",
+    "DomainName": "new.example.test",
+    "SubjectAlternativeNames": [
+     "new.example.test"
+    ],
+    "Status": "PENDING_VALIDATION",
+    "Type": "AMAZON_ISSUED",
+    "InUseBy": [],
+    "RenewalEligibility": "INELIGIBLE"
+   }
+  }
+ }
+}

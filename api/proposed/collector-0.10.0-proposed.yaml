@@ -18,6 +18,8 @@ info:
     bindings (Binding); Custody property key_exportable; Finding codes
     secret_credential_expiry and secret_not_read with Finding properties
     not_after and credential_id. No new rejection code.
+    AWS and Cloudflare additions: AdapterEvidence properties in_use_by and
+    cloud_certificate (CloudCertificate).
     Only public certificate data and metadata are carried: never private key
     material, secret values, password hints or tokens (NFR-SEC-002).
 
@@ -444,6 +446,62 @@ components:
             probed.
           items:
             $ref: "#/components/schemas/Binding"
+        in_use_by:
+          type: array
+          maxItems: 256
+          description: |
+            0.10.0. Provider identifiers of resources the source says use the
+            certificate when no host name is known (ACM InUseBy: load balancer,
+            CloudFront distribution and API Gateway ARNs).
+          items:
+            type: string
+            minLength: 1
+            maxLength: 2048
+        cloud_certificate:
+          $ref: "#/components/schemas/CloudCertificate"
+    CloudCertificate:
+      type: object
+      additionalProperties: true
+      description: |
+        0.10.0. The provider's metadata of a certificate, for sources whose
+        API does not return the certificate itself (Cloudflare edge and custom
+        certificates, ACM certificates not yet issued): there is then no
+        served_chain and no sha1, and outcome is reached. Public data only.
+        Unknown properties are ignored.
+      required: [id]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        type:
+          type: string
+          maxLength: 64
+          description: The source's certificate type, verbatim (ACM AMAZON_ISSUED, IMPORTED, PRIVATE; Cloudflare universal, advanced, custom).
+        status:
+          type: string
+          maxLength: 64
+          description: The source's status, verbatim.
+        issuer:
+          type: string
+          maxLength: 4096
+        serial:
+          type: string
+          maxLength: 128
+        not_before:
+          type: string
+          format: date-time
+        not_after:
+          type: string
+          format: date-time
+        hostnames:
+          type: array
+          maxItems: 1000
+          description: Names the certificate covers, as the source lists them.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 253
     Binding:
       type: object
       additionalProperties: true

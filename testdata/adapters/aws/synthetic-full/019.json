@@ -1,0 +1,15 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/",
+  "query": "Action=ListServerCertificates&Version=2010-05-08&MaxItems=100&Marker=synthetic-iam-marker",
+  "host": "iam.amazonaws.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "text/xml"
+  },
+  "body": "<ListServerCertificatesResponse><ListServerCertificatesResult><IsTruncated>false</IsTruncated><ServerCertificateMetadataList/></ListServerCertificatesResult></ListServerCertificatesResponse>"
+ }
+}

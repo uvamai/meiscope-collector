@@ -1,0 +1,24 @@
+{
+ "request": {
+  "method": "POST",
+  "path": "/",
+  "query": "",
+  "host": "acm.ap-southeast-2.amazonaws.com",
+  "target": "CertificateManager.ListCertificates"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/x-amz-json-1.1"
+  },
+  "body": {
+   "CertificateSummaryList": [
+    {
+     "CertificateArn": "arn:aws:acm:ap-southeast-2:111122223333:certificate/00000000-0000-4000-8000-000000000001",
+     "DomainName": "www.example.test"
+    }
+   ],
+   "NextToken": "synthetic-next-1"
+  }
+ }
+}

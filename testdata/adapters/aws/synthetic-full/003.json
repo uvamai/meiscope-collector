@@ -1,0 +1,43 @@
+{
+ "request": {
+  "method": "POST",
+  "path": "/",
+  "query": "",
+  "host": "acm.ap-southeast-2.amazonaws.com",
+  "target": "CertificateManager.DescribeCertificate",
+  "body_contains": "arn:aws:acm:ap-southeast-2:111122223333:certificate/00000000-0000-4000-8000-000000000001"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/x-amz-json-1.1"
+  },
+  "body": {
+   "Certificate": {
+    "CertificateArn": "arn:aws:acm:ap-southeast-2:111122223333:certificate/00000000-0000-4000-8000-000000000001",
+    "DomainName": "www.example.test",
+    "SubjectAlternativeNames": [
+     "www.example.test",
+     "*.www.example.test"
+    ],
+    "Serial": "synthetic",
+    "Subject": "CN=www.example.test",
+    "Issuer": "Synthetic Test CA",
+    "Status": "ISSUED",
+    "Type": "AMAZON_ISSUED",
+    "SignatureAlgorithm": "SHA256WITHECDSA",
+    "NotBefore": 1794830331.0,
+    "NotAfter": 1828965531.0,
+    "InUseBy": [
+     "arn:aws:elasticloadbalancing:ap-southeast-2:111122223333:loadbalancer/app/web/0123456789abcdef",
+     "arn:aws:elasticloadbalancing:ap-southeast-2:111122223333:loadbalancer/net/tls/0123456789abcdee"
+    ],
+    "RenewalEligibility": "ELIGIBLE",
+    "RenewalSummary": {
+     "RenewalStatus": "SUCCESS",
+     "UpdatedAt": 1794830331.0
+    }
+   }
+  }
+ }
+}

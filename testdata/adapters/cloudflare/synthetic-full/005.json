@@ -1,0 +1,39 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/client/v4/certificates",
+  "query": "zone_id=0123456789abcdef0123456789abcdef&page=1&per_page=50",
+  "host": "api.cloudflare.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "success": true,
+   "errors": [],
+   "messages": [],
+   "result": [
+    {
+     "id": "328578533902268680212849205732770752308931942346",
+     "certificate": "\u002d\u002d\u002d\u002d\u002dBEGIN CERTIFICATE\u002d\u002d\u002d\u002d\u002d\nMIIB0zCCAXmgAwIBAgIIIzrFPaVlMFUwCgYIKoZIzj0EAwIwOTEbMBkGA1UECgwS\nTWVpc2NvcGUgU3ludGhldGljMRowGAYDVQQDDBFTeW50aGV0aWMgVGVzdCBDQTAe\nFw0yNjExMTIxMzU4NTFaFw0yNzEyMTQxMzU4NTFaMB4xHDAaBgNVBAMME29yaWdp\nbi5leGFtcGxlLnRlc3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAS4ZN49sqcl\nVpvnYMhZ6Bzge8umSI6Eym3Hb3TVAKuDsZPPjVLUFFYiawP4Y0Sds4UmC5SEzWLl\n8FLR5Eemk83xo4GFMIGCMDUGA1UdEQQuMCyCE29yaWdpbi5leGFtcGxlLnRlc3SC\nFSoub3JpZ2luLmV4YW1wbGUudGVzdDAJBgNVHRMEAjAAMB0GA1UdDgQWBBT6unS4\n+TGE9O+ccA843cHia6ZuuDAfBgNVHSMEGDAWgBRvhNu5Vh1OX2Nmf5bkiumma+qH\nGzAKBggqhkjOPQQDAgNIADBFAiEApt01H6oUKwLXIw66+uGfsec9rEMlFVN56q1L\nRQnvF60CIDsELL1PdCmDomVBtG7I2Ll3HIsD5eU1/Ew5/ynKZtXU\n\u002d\u002d\u002d\u002d\u002dEND CERTIFICATE\u002d\u002d\u002d\u002d\u002d\n",
+     "hostnames": [
+      "origin.example.test",
+      "*.origin.example.test"
+     ],
+     "expires_on": "2027-12-14 13:58:51 +0000 UTC",
+     "request_type": "origin-ecc",
+     "requested_validity": 397
+    }
+   ],
+   "result_info": {
+    "page": 1,
+    "per_page": 50,
+    "total_pages": 1,
+    "count": 1,
+    "total_count": 1
+   }
+  }
+ }
+}

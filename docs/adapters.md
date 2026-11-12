@@ -60,7 +60,8 @@ command imports the package for its side effect (`cmd/meiscope-collector/adapter
 | Rate limits | `adapter.NewLimiter(clock, perSecond)` |
 | Delta since last run | the cursor; `adapter.CursorStore` persists it |
 | Retries | `internal/retry` (`Retry-After`, backoff) as in the Fleet client |
-| Tests without the network | `adapter/fixture.Load(dir)` is an `http.RoundTripper` replaying recorded exchanges |
+| Tests without the network | `adapter/fixture.Load(dir)` is an `http.RoundTripper` replaying recorded exchanges (optionally matched on `body_contains`, `host` and `target` (X-Amz-Target); non-JSON bodies such as XML are written as a JSON string) |
+| Cloud resources | `adapter/cloud`: content-hash delta (`Filter`), the feature gate (`Finish`), public PEM chains and certificate metadata |
 | Secrets in text | `adapter.Redact`, `adapter.LooksSecret`, `adapter.FindSecrets` |
 
 ### Cursor discipline
@@ -89,6 +90,11 @@ everything behind `MEISCOPE_FEATURE_LOCAL_STORE_V1` (off by default): with it
 off an adapter emits nothing the current core would reject, and logs and
 counts what it skipped (`skipped_feature_disabled`); with it on it emits the
 proposed shape.
+
+The cloud adapters (aws, cloudflare) need the target kind `cloud_resource`,
+proposed in `api/proposed/collector-0.10.0-proposed.yaml` and kept behind
+`MEISCOPE_FEATURE_CLOUD_RESOURCE_V1` in the same way; see
+[cloud-adapters.md](cloud-adapters.md).
 
 Only public certificate data and file metadata may be carried. A guard test
 (`internal/submit/contract_test.go`) rejects key-shaped property names,
@@ -131,7 +137,7 @@ buffer when `MEISCOPE_BUFFER_DIR` is set (recommended), else straight to the cor
 |---|---|
 | `MEISCOPE_CORE_URL` | https URL of the core |
 | `MEISCOPE_FEATURE_LOCAL_STORE_V1` | `true` enables store and file observations (proposed contract); default off |
-| `MEISCOPE_FEATURE_CLOUD_RESOURCE_V1` | `true` enables cloud_resource observations (proposed contract 0.10.0); default off |
+| `MEISCOPE_FEATURE_CLOUD_RESOURCE_V1` | `true` enables cloud_resource observations (azure, aws, cloudflare; proposed contract 0.10.0, [azure.md](azure.md), [cloud-adapters.md](cloud-adapters.md)); default off |
 | `MEISCOPE_CREDENTIAL_FILE`, `MEISCOPE_CREDENTIAL_KEY_FILE` | the age-encrypted credential file and the collector's identity file |
 | `MEISCOPE_BUFFER_DIR` | directory of the local buffer |
 | `MEISCOPE_BUFFER_KEY_REF` | credential reference of the buffer key (default `buffer_key`; 32 bytes, base64) |

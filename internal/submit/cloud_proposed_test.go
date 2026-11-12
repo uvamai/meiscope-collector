@@ -120,11 +120,12 @@ func TestCloudProposalFieldsAreReviewed(t *testing.T) {
 	vendored, vStrict := schemaProps(t, submittest.VendoredSpecPath())
 	proposed, pStrict := schemaProps(t, submittest.CloudProposedSpecPath())
 	added := map[string]string{
-		"AdapterEvidence": "bindings,renewal_mode",
-		"Binding":         "hostname,port,resource_id",
-		"Custody":         "key_exportable",
-		"Finding":         "credential_id,not_after",
-		"Target":          "provider,region,resource_id,resource_type",
+		"AdapterEvidence":  "bindings,cloud_certificate,in_use_by,renewal_mode",
+		"CloudCertificate": "hostnames,id,issuer,not_after,not_before,serial,status,type",
+		"Binding":          "hostname,port,resource_id",
+		"Custody":          "key_exportable",
+		"Finding":          "credential_id,not_after",
+		"Target":           "provider,region,resource_id,resource_type",
 	}
 	for name, props := range proposed {
 		var extra []string

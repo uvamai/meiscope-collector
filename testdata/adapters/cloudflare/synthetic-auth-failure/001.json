@@ -1,0 +1,25 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/client/v4/zones",
+  "query": "page=1&per_page=50",
+  "host": "api.cloudflare.com"
+ },
+ "response": {
+  "status": 403,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "success": false,
+   "errors": [
+    {
+     "code": 10000,
+     "message": "Authentication error"
+    }
+   ],
+   "messages": [],
+   "result": null
+  }
+ }
+}

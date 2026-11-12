@@ -1,0 +1,15 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/",
+  "query": "Action=ListServerCertificates&Version=2010-05-08&MaxItems=100",
+  "host": "iam.amazonaws.com"
+ },
+ "response": {
+  "status": 403,
+  "headers": {
+   "Content-Type": "text/xml"
+  },
+  "body": "<ErrorResponse xmlns=\"https://iam.amazonaws.com/doc/2010-05-08/\"><Error><Type>Sender</Type><Code>AccessDenied</Code><Message>User is not authorized to perform: iam:ListServerCertificates</Message></Error><RequestId>00000000-0000-4000-8000-0000000000b1</RequestId></ErrorResponse>"
+ }
+}

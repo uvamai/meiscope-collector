@@ -1,0 +1,15 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/",
+  "query": "Action=DescribeListeners&Version=2015-12-01&PageSize=400&LoadBalancerArn=arn:aws:elasticloadbalancing:ap-southeast-2:111122223333:loadbalancer/net/tls/0123456789abcdee",
+  "host": "elasticloadbalancing.ap-southeast-2.amazonaws.com"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "text/xml"
+  },
+  "body": "<DescribeListenersResponse><DescribeListenersResult><Listeners><member><ListenerArn>arn:aws:elasticloadbalancing:ap-southeast-2:111122223333:listener/net/tls/0123456789abcdee/3333333333333333</ListenerArn><LoadBalancerArn>arn:aws:elasticloadbalancing:ap-southeast-2:111122223333:loadbalancer/net/tls/0123456789abcdee</LoadBalancerArn><Port>8443</Port><Protocol>TLS</Protocol><Certificates><member><CertificateArn>arn:aws:acm:ap-southeast-2:111122223333:certificate/00000000-0000-4000-8000-000000000001</CertificateArn></member></Certificates></member></Listeners></DescribeListenersResult></DescribeListenersResponse>"
+ }
+}
