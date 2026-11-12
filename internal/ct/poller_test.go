@@ -71,8 +71,8 @@ func TestCertSpotterPagination(t *testing.T) {
 }
 
 func TestCertSpotterKeyFromCredentialSource(t *testing.T) {
-	srv := newFakeCertSpotter(t, csFixture, 100)
-	cs := NewCertSpotter(srv.URL, nil, clock.NewFake(t0), CertSpotterPoliteness, "test", staticCreds{CertSpotterKeyRef: "k-1"})
+	srv := newFakeCertSpotterTLS(t, csFixture, 100)
+	cs := NewCertSpotter(srv.URL, srv.Client().Transport, clock.NewFake(t0), CertSpotterPoliteness, "test", staticCreds{CertSpotterKeyRef: "k-1"})
 	if _, _, err := cs.Issuances(context.Background(), "owned.example", ""); err != nil {
 		t.Fatal(err)
 	}

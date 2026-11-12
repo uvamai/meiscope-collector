@@ -21,6 +21,10 @@ const CertSpotterURL = "https://api.certspotter.com"
 // CertSpotterKeyRef is the credential reference of the Cert Spotter API key.
 const CertSpotterKeyRef = "certspotter_api_key"
 
+// ErrKeyOverHTTP refuses to send the Cert Spotter API key to a plain http://
+// URL (MEISCOPE_CT_CERTSPOTTER_URL).
+var ErrKeyOverHTTP = errors.New("cert spotter: an API key is configured but MEISCOPE_CT_CERTSPOTTER_URL is not https://; refusing to send the key in clear text")
+
 // maxPages bounds one domain's pagination per poll.
 const maxPages = 1000
 
@@ -65,6 +69,10 @@ func (c *CertSpotter) Issuances(ctx context.Context, domain, after string) ([]Is
 	}
 	hdr := http.Header{"Accept": {"application/json"}}
 	if !key.Empty() {
+		// The key is a credential: never send it in clear text.
+		if !strings.HasPrefix(strings.ToLower(c.base), "https://") {
+			return nil, after, ErrKeyOverHTTP
+		}
 		hdr.Set("Authorization", "Bearer "+key.Reveal())
 	}
 	var all []Issuance

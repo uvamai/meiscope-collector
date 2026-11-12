@@ -72,7 +72,7 @@ func defaultEnrolDeps() enrolDeps {
 func enrolCmd(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string, deps enrolDeps) error {
 	fs := flag.NewFlagSet("enrol", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	token := fs.String("token", "", "one-time enrolment token issued by the core (prefer --token-file: arguments are visible to other users)")
+	token := fs.String("token", "", "deprecated: use --token-file (arguments are visible to other users and kept in shell history)")
 	tokenFile := fs.String("token-file", "", `file holding the enrolment token, or "-" to read it from standard input`)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -85,7 +85,10 @@ func enrolCmd(ctx context.Context, args []string, stdout, stderr io.Writer, gete
 		return err
 	}
 	if tok == "" {
-		return errors.New("a token is required: --token-file PATH (or - for standard input), or --token TOKEN")
+		return errors.New("a token is required: --token-file PATH, or --token-file - to read it from standard input")
+	}
+	if *token != "" {
+		fmt.Fprintln(stderr, "warning: --token is deprecated and will be removed: command-line arguments are visible to other users of this host and are kept in shell history; use --token-file PATH or --token-file - (standard input) instead")
 	}
 	cfg, err := platform.LoadConfig(getenv)
 	if err != nil {
@@ -102,11 +105,14 @@ func enrolCmd(ctx context.Context, args []string, stdout, stderr io.Writer, gete
 		return fmt.Errorf("%s already holds an identity; to enrol again, stop the collector and move that directory away", dir)
 	}
 
-	// First contact: the core's server certificate is verified against the
-	// system roots plus MEISCOPE_CA_BUNDLE (the core's CA, given by the
-	// operator). Every later call trusts only the CA bundle pinned here.
+	// First contact: when MEISCOPE_CA_BUNDLE (the core's CA, given by the
+	// operator) is set, the core's server certificate is verified against
+	// that bundle ONLY, not the system roots, so a certificate any public CA
+	// issued for the core's name cannot receive the token. Without the
+	// bundle the system roots apply (a core with a publicly trusted
+	// certificate). Every later call trusts only the CA bundle pinned here.
 	ecfg := egress.LoadConfig(getenv)
-	tr, err := egress.Transport(ecfg, deps.creds(getenv), egress.Options{})
+	tr, err := egress.Transport(ecfg, deps.creds(getenv), egress.Options{CABundleOnly: true})
 	if err != nil {
 		return err
 	}

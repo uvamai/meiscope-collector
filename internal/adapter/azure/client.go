@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/adapter"
+	"github.com/uvamai/meiscope-collector/internal/redirect"
 	"github.com/uvamai/meiscope-collector/internal/retry"
 )
 
@@ -160,6 +161,10 @@ func (c *client) do(ctx context.Context, method, raw, scope string, body []byte,
 				return fmt.Errorf("azure: %s %s: decode: %w", method, u.Path, derr)
 			}
 			return nil
+		case redirect.Is(resp):
+			rerr := redirect.Check(resp)
+			drain(resp)
+			return fmt.Errorf("azure: %s %s: %w", method, u.Path, rerr)
 		case resp.StatusCode == http.StatusUnauthorized && !refreshed:
 			drain(resp)
 			refreshed = true

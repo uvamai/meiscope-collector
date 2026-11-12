@@ -16,6 +16,7 @@ import (
 
 	"github.com/uvamai/meiscope-collector/internal/adapter"
 	"github.com/uvamai/meiscope-collector/internal/credential"
+	"github.com/uvamai/meiscope-collector/internal/redirect"
 )
 
 // Authentication modes (setting "auth").
@@ -200,6 +201,9 @@ func (ts *tokenSource) exchange(hc *http.Client, req *http.Request, now time.Tim
 		return cachedToken{}, fmt.Errorf("%w: token request to %s: %s", ErrAuth, req.URL.Host, adapter.Redact(err.Error(), known...))
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if rerr := redirect.Check(resp); rerr != nil {
+		return cachedToken{}, fmt.Errorf("%w: token request to %s: %w", ErrAuth, req.URL.Host, rerr)
+	}
 	var a tokenAnswer
 	derr := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&a)
 	if resp.StatusCode != http.StatusOK || derr != nil || a.AccessToken == "" {

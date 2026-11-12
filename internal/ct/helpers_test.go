@@ -161,6 +161,18 @@ type fakeCertSpotter struct {
 
 func newFakeCertSpotter(t *testing.T, fixture string, pageSize int) *fakeCertSpotter {
 	t.Helper()
+	return startFakeCertSpotter(t, fixture, pageSize, false)
+}
+
+// newFakeCertSpotterTLS is newFakeCertSpotter over HTTPS (an API key is only
+// ever sent over https); its Client() trusts the server's certificate.
+func newFakeCertSpotterTLS(t *testing.T, fixture string, pageSize int) *fakeCertSpotter {
+	t.Helper()
+	return startFakeCertSpotter(t, fixture, pageSize, true)
+}
+
+func startFakeCertSpotter(t *testing.T, fixture string, pageSize int, useTLS bool) *fakeCertSpotter {
+	t.Helper()
 	b, err := os.ReadFile(filepath.Clean(fixture))
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +184,7 @@ func newFakeCertSpotter(t *testing.T, fixture string, pageSize int) *fakeCertSpo
 	id := func(m map[string]any) int64 { n, _ := strconv.ParseInt(m["id"].(string), 10, 64); return n }
 	sort.Slice(items, func(i, j int) bool { return id(items[i]) < id(items[j]) })
 	f := &fakeCertSpotter{}
-	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.requests = append(f.requests, r.Clone(r.Context()))
 		status, ra := f.status, f.retryAfter
@@ -206,6 +218,11 @@ func newFakeCertSpotter(t *testing.T, fixture string, pageSize int) *fakeCertSpo
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(page)
 	}))
+	if useTLS {
+		f.StartTLS()
+	} else {
+		f.Start()
+	}
 	t.Cleanup(f.Close)
 	return f
 }
