@@ -129,3 +129,55 @@ func TestProposed010FieldsAreReviewed(t *testing.T) {
 		}
 	}
 }
+
+// secretNotReadObservation is a Kubernetes TLS Secret reported from
+// references and metadata only: its certificate was not read (the
+// kubernetes adapter's default).
+func secretNotReadObservation() submit.Observation {
+	return submit.Observation{
+		Target:     submit.Target{Kind: submit.KindStore, Host: "k8s.example.test", Store: "kubernetes/prod/web/www-tls"},
+		Method:     submit.MethodAdapter,
+		ObservedAt: t0,
+		Outcome:    submit.OutcomeReached,
+		Adapter: &submit.AdapterEvidence{
+			Source:     "kubernetes",
+			Findings:   []submit.Finding{{Code: submit.FindingSecretNotRead}},
+			Kubernetes: &submit.KubernetesEvidence{Cluster: "prod", Namespace: "web", Name: "www-tls", Hostnames: []string{"www.example.test"}},
+		},
+	}
+}
+
+// Under the 0.10.0 proposal a store target with kubernetes evidence and a
+// secret_not_read finding may omit the certificate, with outcome reached.
+// The 0.9.0 core refuses it, and so does 0.10.0 for any other shape.
+func TestProposed010SecretNotRead(t *testing.T) {
+	submitOne := func(spec string, o submit.Observation) (submit.Result, error) {
+		t.Helper()
+		core, err := submittest.NewCoreWithSpec(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer core.Close()
+		cl, _ := submit.New(core.URL, core.Client())
+		return cl.Submit(context.Background(), []submit.Observation{o})
+	}
+	if res, err := submitOne(submittest.CloudProposedSpecPath(), secretNotReadObservation()); err != nil || res.Accepted != 1 || len(res.Rejected) != 0 {
+		t.Fatalf("0.10.0 refused a Secret reported without its certificate: %+v %v", res, err)
+	}
+	// 0.9.0 does not know the finding code: the whole request is refused.
+	if res, err := submitOne(submittest.VendoredSpecPath(), secretNotReadObservation()); err == nil && len(res.Rejected) == 0 {
+		t.Fatalf("0.9.0 accepted a store target without a certificate: %+v", res)
+	}
+	bad := map[string]func(*submit.Observation){
+		"outcome cert_seen": func(o *submit.Observation) { o.Outcome = submit.OutcomeCertSeen },
+		"no finding":        func(o *submit.Observation) { o.Adapter.Findings = nil },
+		"no kubernetes":     func(o *submit.Observation) { o.Adapter.Kubernetes = nil },
+	}
+	for name, mod := range bad {
+		o := secretNotReadObservation()
+		mod(&o)
+		if res, err := submitOne(submittest.CloudProposedSpecPath(), o); err == nil && len(res.Rejected) != 1 {
+			t.Errorf("%s accepted: %+v", name, res)
+		}
+	}
+}

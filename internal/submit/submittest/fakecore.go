@@ -46,8 +46,9 @@ func ProposedSpecPath() string {
 type Core struct {
 	*httptest.Server
 	spec *Spec
-	// endpointAdapter allows adapter evidence on host_port_sni targets
-	// (scanner exports), which only the proposed contract 0.10.0 does.
+	// endpointAdapter applies the proposed contract 0.10.0 rules: adapter
+	// evidence on host_port_sni targets (scanner exports), and Kubernetes
+	// Secrets reported without their certificate.
 	endpointAdapter bool
 
 	mu       sync.Mutex
@@ -232,6 +233,12 @@ type observation struct {
 	Adapter *struct {
 		Certificate *struct{} `json:"certificate"`
 		File        *struct{} `json:"file"`
+		// Kubernetes and Findings belong to the 0.10.0 proposal rule for
+		// Secrets reported without their certificate.
+		Kubernetes *struct{} `json:"kubernetes"`
+		Findings   []struct {
+			Code string `json:"code"`
+		} `json:"findings"`
 	} `json:"adapter"`
 }
 
@@ -280,6 +287,10 @@ func rejection(o observation, endpointAdapter bool) (code, msg string) {
 		return "invalid_target", "adapter evidence is allowed only with a store, file or cloud_resource target, and host_port_sni under the 0.10.0 proposal (0.9.0, 0.10.0 proposal)"
 	case o.Target.Kind == "host_port_sni" && o.Adapter != nil && (o.Adapter.Certificate == nil || o.Outcome != "cert_seen" || len(o.ServedChain) > 0):
 		return "invalid_target", "a host_port_sni target read by method adapter carries adapter.certificate, outcome cert_seen and no served_chain (0.10.0 proposal)"
+	case endpointAdapter && o.Target.Kind == "store" && o.Adapter.Certificate == nil && secretNotRead(o):
+		if o.Outcome != "reached" || len(o.ServedChain) > 0 {
+			return "invalid_target", "a Kubernetes Secret reported without its certificate has outcome reached (0.10.0 proposal)"
+		}
 	case o.Target.Kind == "store" && o.Adapter.Certificate == nil:
 		return "invalid_target", "a store target needs adapter.certificate (0.9.0)"
 	case o.Target.Kind == "file" && o.Adapter.File == nil:
@@ -290,6 +301,21 @@ func rejection(o observation, endpointAdapter bool) (code, msg string) {
 		return "chain_outcome_mismatch", "outcome cert_seen needs served_chain (or adapter.certificate)"
 	}
 	return "", ""
+}
+
+// secretNotRead reports whether a store observation is a Kubernetes Secret
+// the adapter was not configured to read: adapter.kubernetes and a
+// secret_not_read finding (0.10.0 proposal).
+func secretNotRead(o observation) bool {
+	if o.Adapter == nil || o.Adapter.Kubernetes == nil {
+		return false
+	}
+	for _, f := range o.Adapter.Findings {
+		if f.Code == "secret_not_read" {
+			return true
+		}
+	}
+	return false
 }
 
 func is32Bytes(s string) bool {

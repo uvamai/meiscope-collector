@@ -35,10 +35,14 @@ info:
     and serial are both present (sources that report no fingerprint), and
     gains sha256 and dns_names; (3) AdapterEvidence gains kubernetes
     (KubernetesEvidence, KubernetesRef, CertManagerCertificate) and scanner
-    (ScannerEvidence). The collector sends (1) and (2) only with
-    MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2 (off by default); the objects of (3)
-    are unknown AdapterEvidence properties that a 0.9.0 core accepts and
-    ignores.
+    (ScannerEvidence); (4) a store target whose adapter evidence carries
+    kubernetes and a secret_not_read finding may omit certificate, with
+    outcome reached: a Kubernetes TLS Secret known from Ingress, Gateway and
+    cert-manager references or Secret metadata, whose data the collector was
+    not configured to read (the kubernetes adapter's default). The collector
+    sends (1), (2) and (4) only with MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2
+    (off by default); the objects of (3) are unknown AdapterEvidence
+    properties that a 0.9.0 core accepts and ignores.
     Every request is authenticated by the collector's mTLS client certificate,
     which identifies its tenant and collector record; no request body names a
     tenant. The one exception is POST /enrol, which a collector calls before
@@ -421,7 +425,10 @@ components:
         file target carries file and outcome reached. Never carries private
         keys, keystore passwords or key-alias secrets.
         0.10.0: a host_port_sni target read by method adapter carries
-        certificate, no served_chain, and outcome cert_seen.
+        certificate, no served_chain, and outcome cert_seen. A store target
+        whose evidence carries kubernetes and a secret_not_read finding may
+        omit certificate; it then has outcome reached and no served_chain
+        (a Kubernetes Secret whose data was not read).
       required: [source]
       properties:
         source:
@@ -725,9 +732,9 @@ components:
             expiry the source reports; the finding carries not_after and
             credential_id only, never the value or its hint.
             secret_not_read: a secret that may hold a certificate (Key Vault
-            content type application/x-pem-file or application/x-pkcs12)
-            which the collector was not configured to read, or holds a
-            container it does not open.
+            content type application/x-pem-file or application/x-pkcs12, or
+            a Kubernetes TLS Secret) which the collector was not configured
+            to read, or holds a container it does not open.
         not_after:
           type: string
           format: date-time
