@@ -119,7 +119,7 @@ func syncOK(t *testing.T, a adapter.Adapter, cfg adapter.Config, since adapter.C
 func byID(obs []submit.Observation) map[string]submit.Observation {
 	m := map[string]submit.Observation{}
 	for _, o := range obs {
-		m[o.Target.Cloud.ResourceID] = o
+		m[o.Target.ResourceID] = o
 	}
 	return m
 }
@@ -128,8 +128,8 @@ func TestFullSync(t *testing.T) {
 	tr := load(t, "synthetic-full")
 	te := newEnv(t, tr)
 	res := syncOK(t, newAdapter(te.env), config(nil), "")
-	if len(res.Observations) != 7 {
-		t.Fatalf("%d observations, want 7", len(res.Observations))
+	if len(res.Observations) != 4 {
+		t.Fatalf("%d observations, want 4", len(res.Observations))
 	}
 	m := byID(res.Observations)
 
@@ -140,60 +140,70 @@ func TestFullSync(t *testing.T) {
 	if www.Adapter.Certificate.SHA1 != "4deead0e7ed9127c63d0ca7ff25497d52b04301c" || www.Adapter.Certificate.CommonName != "www.example.test" {
 		t.Errorf("www metadata %+v", www.Adapter.Certificate)
 	}
-	if r := www.Adapter.Renewal; r == nil || r.Mode != submit.RenewalExternalAutomated || r.ManagedBy != "aws_acm" || r.Status != "SUCCESS" || r.Eligibility != "ELIGIBLE" {
-		t.Errorf("www renewal %+v", www.Adapter.Renewal)
+	if www.Adapter.RenewalMode != submit.RenewalExternalAutomated {
+		t.Errorf("www renewal_mode %q", www.Adapter.RenewalMode)
 	}
-	if len(www.Adapter.Bindings) != 2 || www.Adapter.Bindings[0].Service != "elasticloadbalancing" {
+	wantBindings := []submit.Binding{
+		{Hostname: "web-1.ap-southeast-2.elb.example.test", Port: 443, ResourceID: arnALB443},
+		{Hostname: "tls-1.elb.ap-southeast-2.example.test", Port: 8443, ResourceID: arnNLB},
+	}
+	if !slices.Equal(www.Adapter.Bindings, wantBindings) {
 		t.Errorf("www bindings %+v", www.Adapter.Bindings)
 	}
-	if c := www.Target.Cloud; c.Provider != "aws" || c.Service != "acm" || c.Region != "ap-southeast-2" || c.Account != "111122223333" || www.Target.Host != "acm.ap-southeast-2.amazonaws.com" {
-		t.Errorf("www target %+v %+v", www.Target, c)
+	if len(www.Adapter.InUseBy) != 2 || !strings.Contains(www.Adapter.InUseBy[0], ":loadbalancer/app/web/") {
+		t.Errorf("www in_use_by %v", www.Adapter.InUseBy)
 	}
-	if !slices.Equal(www.Adapter.Hostnames, []string{"*.www.example.test", "www.example.test"}) {
-		t.Errorf("www hostnames %v", www.Adapter.Hostnames)
+	tg := www.Target
+	if tg.Kind != submit.KindCloudResource || tg.Provider != "aws" || tg.ResourceType != aws.TypeACMCertificate || tg.Region != "ap-southeast-2" || tg.Host != "acm.ap-southeast-2.amazonaws.com" {
+		t.Errorf("www target %+v", tg)
 	}
-	if na := www.Adapter.CloudCertificate.NotAfter; na == nil || na.Unix() != 1828965531 {
-		t.Errorf("www not_after %v", na)
+	cc := www.Adapter.CloudCertificate
+	if cc == nil || cc.Type != "AMAZON_ISSUED" || cc.Status != "ISSUED; renewal SUCCESS" || cc.NotAfter == nil || cc.NotAfter.Unix() != 1828965531 ||
+		!slices.Equal(cc.Hostnames, []string{"*.www.example.test", "www.example.test"}) {
+		t.Errorf("www cloud_certificate %+v", cc)
 	}
 
 	pending := m[arnNew]
-	if pending.Outcome != submit.OutcomeReached || pending.ServedChain != nil || pending.Adapter.Renewal.Mode != submit.RenewalUnknown {
-		t.Errorf("pending: %+v %+v", pending, pending.Adapter.Renewal)
+	if pending.Outcome != submit.OutcomeReached || pending.ServedChain != nil || pending.Adapter.RenewalMode != submit.RenewalUnknown || pending.Adapter.CloudCertificate.Status != "PENDING_VALIDATION" {
+		t.Errorf("pending: %+v %+v", pending, pending.Adapter.CloudCertificate)
 	}
 
 	api := m[arnAPI]
-	if api.Adapter.Renewal.Mode != submit.RenewalManual || api.Target.Cloud.Region != "us-east-1" || len(api.Adapter.Bindings) != 1 || api.Adapter.Bindings[0].Service != "cloudfront" {
-		t.Errorf("imported: %+v %+v", api.Adapter.Renewal, api.Adapter.Bindings)
-	}
-
-	alb := m[arnALB443]
-	if alb.Outcome != submit.OutcomeReached || alb.Adapter.Endpoint == nil || alb.Adapter.Endpoint.Port != 443 || alb.Adapter.Endpoint.Protocol != "HTTPS" || alb.Adapter.Endpoint.Scheme != "internet-facing" {
-		t.Fatalf("alb: %+v", alb.Adapter.Endpoint)
-	}
-	if b := alb.Adapter.Bindings; len(b) != 2 || b[0].ResourceID != arnWWW || !*b[0].IsDefault || b[1].ResourceID != arnIAM || *b[1].IsDefault || b[1].Service != "iam" {
-		t.Errorf("alb bindings %+v", alb.Adapter.Bindings)
-	}
-	if alb.Target.Cloud.Service != "elbv2_listener" {
-		t.Errorf("alb service %s", alb.Target.Cloud.Service)
-	}
-	if nlb := m[arnNLB]; nlb.Adapter.Endpoint.Port != 8443 || nlb.Adapter.Endpoint.Protocol != "TLS" || len(nlb.Adapter.Bindings) != 1 {
-		t.Errorf("nlb %+v %+v", nlb.Adapter.Endpoint, nlb.Adapter.Bindings)
-	}
-	if cl, ok := m[idClassic]; !ok || cl.Target.Cloud.Service != "elb_listener" || cl.Adapter.Bindings[0].ResourceID != arnIAM {
-		t.Errorf("classic listener %+v", cl)
+	if api.Adapter.RenewalMode != submit.RenewalManual || api.Target.Region != "us-east-1" || len(api.Adapter.InUseBy) != 1 || !strings.HasPrefix(api.Adapter.InUseBy[0], "arn:aws:cloudfront::") || len(api.Adapter.Bindings) != 0 {
+		t.Errorf("imported: %q %v %v", api.Adapter.RenewalMode, api.Adapter.InUseBy, api.Adapter.Bindings)
 	}
 
 	iam := m[arnIAM]
-	if iam.Outcome != submit.OutcomeCertSeen || iam.Target.Cloud.Region != "" || iam.Target.Host != "iam.amazonaws.com" || iam.Adapter.Renewal.Mode != submit.RenewalManual {
+	if iam.Outcome != submit.OutcomeCertSeen || iam.Target.Region != "" || iam.Target.Host != "iam.amazonaws.com" || iam.Target.ResourceType != aws.TypeIAMServerCertificate || iam.Adapter.RenewalMode != submit.RenewalManual {
 		t.Errorf("iam %+v", iam)
 	}
-	if !slices.Equal(iam.Adapter.Hostnames, []string{"*.legacy.example.test", "legacy.example.test"}) {
-		t.Errorf("iam hostnames %v", iam.Adapter.Hostnames)
+	wantIAM := []submit.Binding{
+		{Hostname: "web-1.ap-southeast-2.elb.example.test", Port: 443, ResourceID: arnALB443},
+		{Hostname: "legacy-1.ap-southeast-2.elb.example.test", Port: 443, ResourceID: idClassic},
+	}
+	if !slices.Equal(iam.Adapter.Bindings, wantIAM) {
+		t.Errorf("iam bindings %+v", iam.Adapter.Bindings)
+	}
+	if !slices.Equal(iam.Adapter.CloudCertificate.Hostnames, []string{"*.legacy.example.test", "legacy.example.test"}) {
+		t.Errorf("iam hostnames %v", iam.Adapter.CloudCertificate.Hostnames)
+	}
+	if res.Stats[aws.StatBindingNoCertificate] != 0 {
+		t.Errorf("stats %v", res.Stats)
 	}
 
 	submitAll(t, res.Observations)
 	checkRequests(t, tr)
 	checkNoSecrets(t, res, te.logs)
+}
+
+// TestBindingsWithoutCertificates: with ELB read but ACM and IAM not, the
+// listeners have no certificate observation to attach to and are counted.
+func TestBindingsWithoutCertificates(t *testing.T) {
+	te := newEnv(t, load(t, "synthetic-full"))
+	res := syncOK(t, newAdapter(te.env), config(map[string]string{"services": "elb"}), "")
+	if len(res.Observations) != 0 || res.Stats[aws.StatBindingNoCertificate] != 4 {
+		t.Fatalf("%d observations, stats %v", len(res.Observations), res.Stats)
+	}
 }
 
 // submitAll sends the observations to a fake core for the proposed
@@ -282,13 +292,13 @@ func TestDelta(t *testing.T) {
 	cfg := config(nil)
 	first := syncOK(t, a, cfg, "")
 	second := syncOK(t, a, cfg, first.Cursor)
-	if len(second.Observations) != 0 || second.Stats[cloud.StatUnchanged] != 7 {
+	if len(second.Observations) != 0 || second.Stats[cloud.StatUnchanged] != 4 {
 		t.Fatalf("unchanged resources were sent again: %d, stats %v", len(second.Observations), second.Stats)
 	}
 	te.clk.Advance(25 * time.Hour)
 	third := syncOK(t, a, cfg, second.Cursor)
-	if len(third.Observations) != 7 {
-		t.Fatalf("refresh after 24 h sent %d, want 7", len(third.Observations))
+	if len(third.Observations) != 4 {
+		t.Fatalf("refresh after 24 h sent %d, want 4", len(third.Observations))
 	}
 	cfg.Settings["refresh_hours"] = "0"
 	te.clk.Advance(100 * 24 * time.Hour)
@@ -315,7 +325,7 @@ func TestFeatureOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rr.Observations != 0 || sink.n != 0 || rr.Stats[cloud.StatSkippedFeatureDisabled] != 7 {
+	if rr.Observations != 0 || sink.n != 0 || rr.Stats[cloud.StatSkippedFeatureDisabled] != 4 {
 		t.Fatalf("flag off: %+v, sink got %d", rr, sink.n)
 	}
 	if cursors.Get("aws-prod") != "" {
@@ -388,7 +398,7 @@ func TestThrottling(t *testing.T) {
 	th := &throttler{next: load(t, "synthetic-full"), statuses: []int{400, 400, 429}}
 	te := newEnv(t, th)
 	res := syncOK(t, newAdapter(te.env), config(nil), "")
-	if len(res.Observations) != 7 {
+	if len(res.Observations) != 4 {
 		t.Fatalf("%d observations after throttling", len(res.Observations))
 	}
 	// Back-off 1 s, 2 s, then Retry-After 3 s but never sooner than the

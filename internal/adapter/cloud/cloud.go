@@ -54,8 +54,8 @@ type Delta struct {
 
 // Key identifies an observation's resource.
 func Key(o submit.Observation) string {
-	if c := o.Target.Cloud; c != nil {
-		return c.Provider + "|" + c.Service + "|" + c.Region + "|" + c.ResourceID
+	if t := o.Target; t.Kind == submit.KindCloudResource {
+		return t.Provider + "|" + t.ResourceType + "|" + t.Region + "|" + t.ResourceID
 	}
 	b, _ := json.Marshal(o.Target)
 	return string(b)
@@ -182,6 +182,9 @@ func Metadata(der []byte) (*submit.CertificateMetadata, error) {
 	}
 	return m, nil
 }
+
+// MaxBindings is the most bindings an observation carries (Binding maxItems).
+const MaxBindings = 256
 
 // Hostnames merges name lists: lower case, no trailing dot, no duplicates,
 // sorted, at most 1000, each at most 253 characters.

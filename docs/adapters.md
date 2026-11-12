@@ -60,7 +60,7 @@ command imports the package for its side effect (`cmd/meiscope-collector/adapter
 | Rate limits | `adapter.NewLimiter(clock, perSecond)` |
 | Delta since last run | the cursor; `adapter.CursorStore` persists it |
 | Retries | `internal/retry` (`Retry-After`, backoff) as in the Fleet client |
-| Tests without the network | `adapter/fixture.Load(dir)` is an `http.RoundTripper` replaying recorded exchanges (optionally matched on `host`, `target` (X-Amz-Target) and a JSON `body`; non-JSON bodies such as XML are written as a JSON string) |
+| Tests without the network | `adapter/fixture.Load(dir)` is an `http.RoundTripper` replaying recorded exchanges (optionally matched on `body_contains`, `host` and `target` (X-Amz-Target); non-JSON bodies such as XML are written as a JSON string) |
 | Cloud resources | `adapter/cloud`: content-hash delta (`Filter`), the feature gate (`Finish`), public PEM chains and certificate metadata |
 | Secrets in text | `adapter.Redact`, `adapter.LooksSecret`, `adapter.FindSecrets` |
 

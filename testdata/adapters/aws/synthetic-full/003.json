@@ -5,9 +5,7 @@
   "query": "",
   "host": "acm.ap-southeast-2.amazonaws.com",
   "target": "CertificateManager.DescribeCertificate",
-  "body": {
-   "CertificateArn": "arn:aws:acm:ap-southeast-2:111122223333:certificate/00000000-0000-4000-8000-000000000001"
-  }
+  "body_contains": "arn:aws:acm:ap-southeast-2:111122223333:certificate/00000000-0000-4000-8000-000000000001"
  },
  "response": {
   "status": 200,
@@ -27,7 +25,6 @@
     "Issuer": "Synthetic Test CA",
     "Status": "ISSUED",
     "Type": "AMAZON_ISSUED",
-    "KeyAlgorithm": "EC_prime256v1",
     "SignatureAlgorithm": "SHA256WITHECDSA",
     "NotBefore": 1794830331.0,
     "NotAfter": 1828965531.0,

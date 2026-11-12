@@ -113,10 +113,20 @@ func (a *Adapter) Validate(cfg adapter.Config) error {
 	return intIn(cfg, "max_pages", 1, adapter.DefaultMaxPages)
 }
 
+// StatBindingsCapped counts bindings dropped over cloud.MaxBindings;
+// StatBindingNoCertificate counts listener bindings whose certificate was
+// not read in the same sync (its service is not configured, or it is in a
+// region not configured).
+const (
+	StatBindingsCapped       = "bindings_capped"
+	StatBindingNoCertificate = "binding_certificate_not_read"
+)
+
 type syncer struct {
 	c        *client
 	now      time.Time
 	maxPages int
+	st       map[string]int
 }
 
 // Sync reads every configured service and region and returns the resources
@@ -151,19 +161,21 @@ func (a *Adapter) Sync(ctx context.Context, cfg adapter.Config, since adapter.Cu
 		c:        &client{hc: hc, creds: creds, clk: clk, lim: adapter.NewLimiter(clk, rate), suffix: "amazonaws.com"},
 		now:      clk.Now().UTC(),
 		maxPages: intSetting(cfg, "max_pages", 0),
+		st:       map[string]int{},
 	}
 	svcs := services(cfg)
 	var obs []submit.Observation
+	// Listener bindings are read first, so each certificate observation
+	// carries the listeners that serve it.
+	binds := listenerBindings{}
 	for _, region := range splitList(cfg.Setting("regions", "")) {
-		if slices.Contains(svcs, ServiceACM) {
-			o, err := s.syncACM(ctx, region)
-			if err != nil {
+		if slices.Contains(svcs, ServiceELB) {
+			if err := s.syncELB(ctx, region, binds); err != nil {
 				return adapter.Result{}, s.wrap(err)
 			}
-			obs = append(obs, o...)
 		}
-		if slices.Contains(svcs, ServiceELB) {
-			o, err := s.syncELB(ctx, region)
+		if slices.Contains(svcs, ServiceACM) {
+			o, err := s.syncACM(ctx, region, binds)
 			if err != nil {
 				return adapter.Result{}, s.wrap(err)
 			}
@@ -171,13 +183,17 @@ func (a *Adapter) Sync(ctx context.Context, cfg adapter.Config, since adapter.Cu
 		}
 	}
 	if slices.Contains(svcs, ServiceIAM) {
-		o, err := s.syncIAM(ctx)
+		o, err := s.syncIAM(ctx, binds)
 		if err != nil {
 			return adapter.Result{}, s.wrap(err)
 		}
 		obs = append(obs, o...)
 	}
-	st := map[string]int{cloud.StatObserved: len(obs)}
+	for _, b := range binds {
+		s.st[StatBindingNoCertificate] += len(b)
+	}
+	st := s.st
+	st[cloud.StatObserved] = len(obs)
 	out, next, err := cloud.Filter(since, obs, s.now, time.Duration(intSetting(cfg, "refresh_hours", 24))*time.Hour, st)
 	if err != nil {
 		return adapter.Result{}, err

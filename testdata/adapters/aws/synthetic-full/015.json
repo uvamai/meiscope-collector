@@ -5,9 +5,7 @@
   "query": "",
   "host": "acm.us-east-1.amazonaws.com",
   "target": "CertificateManager.GetCertificate",
-  "body": {
-   "CertificateArn": "arn:aws:acm:us-east-1:111122223333:certificate/00000000-0000-4000-8000-000000000004"
-  }
+  "body_contains": "arn:aws:acm:us-east-1:111122223333:certificate/00000000-0000-4000-8000-000000000004"
  },
  "response": {
   "status": 200,

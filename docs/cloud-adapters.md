@@ -19,15 +19,28 @@ for what must be re-recorded.
 
 ## What is observed
 
-| Source | `cloud.service` | `resource_id` | Outcome | Evidence |
+All observations use the shared 0.10.0 shape (also used by the Azure
+adapters): `target.kind: cloud_resource` with `provider`, `resource_id`,
+`resource_type`, `region`; evidence `renewal_mode` and `bindings`
+(`hostname`, `port`, `resource_id`), plus the AWS/Cloudflare additions
+`in_use_by` and `cloud_certificate`.
+
+| Source | `resource_type` | `resource_id` | Outcome | Evidence |
 |---|---|---|---|---|
-| ACM certificate | `acm` | certificate ARN | `cert_seen` when issued (public certificate and chain from `GetCertificate`), else `reached` | `hostnames` (SANs), `bindings` (`InUseBy`: ELB, CloudFront, API Gateway ARNs), `renewal`, `cloud_certificate` |
-| ALB/NLB listener (HTTPS, TLS) | `elbv2_listener` | listener ARN | `reached` | `endpoint` (DNS name, port, protocol, scheme), `bindings` (every certificate, default first, ACM or IAM) |
-| Classic ELB listener (HTTPS, SSL) | `elb_listener` | load balancer ARN + `/listener/<port>` (Classic listeners have no ARN; the account is taken from the certificate ARN) | `reached` | as above |
-| IAM server certificate | `iam_server_certificate` | ARN (global, no region) | `cert_seen` | `renewal: manual` |
-| Cloudflare certificate pack | `certificate_pack` | pack ID (`account` = zone ID) | `reached` (the API returns metadata, not the certificate) | `hostnames`, `bindings` (the pack's edge certificates), `cloud_certificate` (primary certificate's issuer, serial, expiry), `renewal` |
-| Cloudflare custom certificate | `custom_certificate` | certificate ID | `reached` | `hostnames`, `cloud_certificate`, `renewal: manual` |
-| Cloudflare Origin CA certificate | `origin_ca_certificate` | certificate ID | `cert_seen` (public certificate from the API) | `hostnames`, `renewal: manual` |
+| ACM certificate | `AWS::CertificateManager::Certificate` | certificate ARN | `cert_seen` when issued (public certificate and chain from `GetCertificate`), else `reached` | `renewal_mode`; `bindings` = the TLS listeners that present it (load balancer DNS name, listener port, listener ARN); `in_use_by` = ACM `InUseBy` ARNs (ELB, CloudFront, API Gateway); `cloud_certificate` (type, status with renewal status, SANs, validity) |
+| IAM server certificate | `AWS::IAM::ServerCertificate` | ARN (global, no region) | `cert_seen` | `renewal_mode: manual`; `bindings` from ALB/NLB/Classic listeners |
+| Cloudflare certificate pack | `Cloudflare::CertificatePack` | `<zone ID>/<pack ID>` | `reached` (the API returns metadata, not the certificate) | `renewal_mode`; `bindings` = the pack's hosts (`resource_id` = zone ID); `cloud_certificate` (primary certificate's issuer, serial, expiry) |
+| Cloudflare custom certificate | `Cloudflare::CustomCertificate` | `<zone ID>/<certificate ID>` | `reached` | `renewal_mode: manual`, `bindings`, `cloud_certificate` |
+| Cloudflare Origin CA certificate | `Cloudflare::OriginCACertificate` | `<zone ID>/<certificate ID>` | `cert_seen` (public certificate from the API) | `renewal_mode: manual`; no bindings (it is installed on the origin, not served by the edge) |
+
+Load balancer listeners are not observations of their own: each HTTPS, TLS
+or SSL listener (ALB, NLB, Classic) becomes a binding of the certificate it
+presents (default and SNI certificates). Classic listeners have no ARN, so
+their `resource_id` is the load balancer ARN plus `/listener/<port>`. A
+listener whose certificate was not read in the same sync (its service or
+region is not configured) is counted as `binding_certificate_not_read`.
+CloudFront and API Gateway users appear only in `in_use_by`, because ACM
+gives their ARNs but not their host names.
 
 `target.host` is the API host that was read (for example
 `acm.ap-southeast-2.amazonaws.com`, `iam.amazonaws.com`, `api.cloudflare.com`).
@@ -36,18 +49,15 @@ for what must be re-recorded.
 
 Set only from what the source proves, never guessed:
 
-| Source | `renewal.mode` |
+| Source | `renewal_mode` |
 |---|---|
-| ACM `Type` AMAZON_ISSUED or PRIVATE and `RenewalEligibility` ELIGIBLE | `external_automated`, `managed_by: aws_acm` (the core sets renewal_mode external_automated) |
+| ACM `Type` AMAZON_ISSUED or PRIVATE and `RenewalEligibility` ELIGIBLE | `external_automated` (the core sets renewal_mode external_automated) |
 | ACM `Type` IMPORTED | `manual` (ACM never renews imported certificates) |
 | any other ACM certificate (for example INELIGIBLE) | `unknown` |
 | IAM server certificate | `manual` |
-| Cloudflare pack of type universal, advanced or total_tls | `external_automated`, `managed_by: cloudflare` |
+| Cloudflare pack of type universal, advanced or total_tls | `external_automated` |
 | other Cloudflare pack types | `unknown` |
 | Cloudflare custom and Origin CA certificates | `manual` |
-
-`renewal.status` and `renewal.eligibility` carry the source's own values
-(`RenewalSummary.RenewalStatus`, `RenewalEligibility`, pack `status`).
 
 ## AWS
 
@@ -128,22 +138,20 @@ listing are dropped from the cursor; their absence is the core's signal.
 
 ## The proposed contract (0.10.0)
 
-Additive to 0.9.0:
+One proposal for all cloud adapters,
+`api/proposed/collector-0.10.0-proposed.yaml`, taken from the Azure
+adapters' proposal (target kind `cloud_resource` with `provider`,
+`resource_id`, `resource_type`, `region`; `renewal_mode`; `bindings`;
+`key_exportable`; the Entra findings) with two additive properties for AWS
+and Cloudflare:
 
-- `Target.kind` gains `cloud_resource`; `Target.cloud` is a `CloudResource`
-  (`provider`, `service`, `resource_id` required; `region`, `account`
-  optional). Closed (`additionalProperties: false`) because it is target
-  identity. Provider-neutral, so Azure and others use the same shape.
-- `AdapterEvidence` gains `hostnames`, `bindings` (`Binding`), `renewal`
-  (`Renewal`), `cloud_certificate` (`CloudCertificate`) and `endpoint`
-  (`Endpoint`), all open objects.
-- Rules: method `adapter` only, no `port` or `sni`, `cloud` required (and
-  only with this kind), adapter evidence required; `cert_seen` needs
-  `served_chain` or `adapter.certificate`; `reached` needs
-  `cloud_certificate`, `endpoint` or `bindings`. Rejections use the existing
-  `invalid_target`.
+- `AdapterEvidence.in_use_by`: up to 256 provider IDs of resources that use
+  the certificate where no host name is known (ACM `InUseBy`).
+- `AdapterEvidence.cloud_certificate` (`CloudCertificate`: `id` required;
+  `type`, `status`, `issuer`, `serial`, `not_before`, `not_after`,
+  `hostnames`): provider metadata of a certificate whose body the API does
+  not return, so the core still learns expiry and names (Cloudflare edge and
+  custom certificates, ACM certificates not yet issued).
 
-`internal/submit/proposed_cloud_test.go` pins the exact field set, checks
-the rules against the fake core, and shows that the vendored 0.9.0 contract
-rejects `cloud_resource`. `task contract:proposal` runs oasdiff on both
-proposals.
+`internal/submit/cloud_proposed_test.go` pins the full field set;
+`internal/submit/cloud_aws_cloudflare_test.go` covers the two additions.

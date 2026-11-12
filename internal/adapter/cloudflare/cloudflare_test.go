@@ -108,32 +108,31 @@ func TestFullSync(t *testing.T) {
 	}
 	m := map[string]submit.Observation{}
 	for _, o := range res.Observations {
-		m[o.Target.Cloud.ResourceID] = o
-		if o.Target.Host != "api.cloudflare.com" || o.Target.Cloud.Provider != "cloudflare" || o.Adapter.Source != "cloudflare" {
+		m[o.Target.ResourceID] = o
+		if o.Target.Host != "api.cloudflare.com" || o.Target.Provider != "cloudflare" || o.Target.Kind != submit.KindCloudResource || o.Adapter.Source != "cloudflare" {
 			t.Errorf("target %+v", o.Target)
 		}
 	}
-	pa := m[packA]
-	if pa.Outcome != submit.OutcomeReached || pa.Target.Cloud.Service != "certificate_pack" || pa.Target.Cloud.Account != zoneA {
+	pa := m[zoneA+"/"+packA]
+	if pa.Outcome != submit.OutcomeReached || pa.Target.ResourceType != cloudflare.TypeCertificatePack || pa.Adapter.RenewalMode != submit.RenewalExternalAutomated {
 		t.Fatalf("pack A %+v", pa)
 	}
-	if r := pa.Adapter.Renewal; r.Mode != submit.RenewalExternalAutomated || r.ManagedBy != "cloudflare" || r.Status != "active" {
-		t.Errorf("pack A renewal %+v", r)
-	}
-	if cc := pa.Adapter.CloudCertificate; cc.Serial != "0a1b2c3d4e5f" || cc.NotAfter == nil || !cc.NotAfter.Equal(time.Date(2026, 12, 30, 0, 0, 0, 0, time.UTC)) || cc.Issuer != "Synthetic Edge CA" || cc.Type != "universal" {
+	if cc := pa.Adapter.CloudCertificate; cc.Serial != "0a1b2c3d4e5f" || cc.NotAfter == nil || !cc.NotAfter.Equal(time.Date(2026, 12, 30, 0, 0, 0, 0, time.UTC)) ||
+		cc.Issuer != "Synthetic Edge CA" || cc.Type != "universal" || cc.Status != "active" || !slices.Equal(cc.Hostnames, []string{"*.example.test", "example.test"}) {
 		t.Errorf("pack A certificate %+v", cc)
 	}
-	if len(pa.Adapter.Bindings) != 2 || !slices.Equal(pa.Adapter.Hostnames, []string{"*.example.test", "example.test"}) {
-		t.Errorf("pack A bindings %+v hostnames %v", pa.Adapter.Bindings, pa.Adapter.Hostnames)
+	if !slices.Equal(pa.Adapter.Bindings, []submit.Binding{{Hostname: "*.example.test", ResourceID: zoneA}, {Hostname: "example.test", ResourceID: zoneA}}) {
+		t.Errorf("pack A bindings %+v", pa.Adapter.Bindings)
 	}
-	if pb := m[packB]; pb.Target.Cloud.Account != zoneB || pb.Adapter.Renewal.Mode != submit.RenewalExternalAutomated || pb.Adapter.CloudCertificate.Status != "pending_validation" {
+	if pb := m[zoneB+"/"+packB]; pb.Adapter.RenewalMode != submit.RenewalExternalAutomated || pb.Adapter.CloudCertificate.Status != "pending_validation" || len(pb.Adapter.Bindings) != 2 {
 		t.Errorf("pack B %+v", pb.Adapter)
 	}
-	if c := m[customA]; c.Target.Cloud.Service != "custom_certificate" || c.Adapter.Renewal.Mode != submit.RenewalManual || c.Adapter.CloudCertificate.NotAfter == nil {
+	if c := m[zoneA+"/"+customA]; c.Target.ResourceType != cloudflare.TypeCustomCertificate || c.Adapter.RenewalMode != submit.RenewalManual || c.Adapter.CloudCertificate.NotAfter == nil {
 		t.Errorf("custom %+v", c.Adapter)
 	}
-	o := m[originA]
-	if o.Outcome != submit.OutcomeCertSeen || len(o.ServedChain) != 1 || o.Adapter.Certificate.SHA1 != "20060e7eef4b19f3b041e4abe50173b9b57fbd9f" || o.Adapter.Renewal.Mode != submit.RenewalManual {
+	o := m[zoneA+"/"+originA]
+	if o.Outcome != submit.OutcomeCertSeen || len(o.ServedChain) != 1 || o.Adapter.Certificate.SHA1 != "20060e7eef4b19f3b041e4abe50173b9b57fbd9f" ||
+		o.Adapter.RenewalMode != submit.RenewalManual || len(o.Adapter.Bindings) != 0 {
 		t.Errorf("origin %+v", o)
 	}
 
@@ -182,7 +181,7 @@ func TestZonesSetting(t *testing.T) {
 	tr := load(t, "synthetic-full")
 	env, _, _ := newEnv(tr)
 	res := syncOK(t, newAdapter(env), config(map[string]string{"zones": zoneB, "origin_ca": "false"}), "")
-	if len(res.Observations) != 1 || res.Observations[0].Target.Cloud.ResourceID != packB {
+	if len(res.Observations) != 1 || res.Observations[0].Target.ResourceID != zoneB+"/"+packB {
 		t.Fatalf("%+v", res.Observations)
 	}
 	for _, r := range tr.Requests() {

@@ -5,9 +5,7 @@
   "query": "",
   "host": "acm.ap-southeast-2.amazonaws.com",
   "target": "CertificateManager.DescribeCertificate",
-  "body": {
-   "CertificateArn": "arn:aws:acm:ap-southeast-2:111122223333:certificate/00000000-0000-4000-8000-000000000002"
-  }
+  "body_contains": "arn:aws:acm:ap-southeast-2:111122223333:certificate/00000000-0000-4000-8000-000000000002"
  },
  "response": {
   "status": 200,
@@ -23,7 +21,6 @@
     ],
     "Status": "PENDING_VALIDATION",
     "Type": "AMAZON_ISSUED",
-    "KeyAlgorithm": "RSA_2048",
     "InUseBy": [],
     "RenewalEligibility": "INELIGIBLE"
    }

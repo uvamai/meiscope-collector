@@ -63,7 +63,13 @@ type acmGetOut struct {
 	CertificateChain string `json:"CertificateChain"`
 }
 
-func (s *syncer) syncACM(ctx context.Context, region string) ([]submit.Observation, error) {
+// Resource types (CloudFormation type names) of the observed resources.
+const (
+	TypeACMCertificate       = "AWS::CertificateManager::Certificate"
+	TypeIAMServerCertificate = "AWS::IAM::ServerCertificate"
+)
+
+func (s *syncer) syncACM(ctx context.Context, region string, binds listenerBindings) ([]submit.Observation, error) {
 	arns, err := adapter.Paginate(ctx, s.maxPages, func(ctx context.Context, token string) (adapter.Page[string], error) {
 		var out acmListOut
 		in := acmListIn{MaxItems: 100, NextToken: token, Includes: map[string][]string{"keyTypes": acmKeyTypes}}
@@ -95,7 +101,7 @@ func (s *syncer) syncACM(ctx context.Context, region string) ([]submit.Observati
 				return nil, fmt.Errorf("acm %s: GetCertificate: %w", region, err)
 			}
 		}
-		o, err := s.mapACM(region, d.Certificate, chain)
+		o, err := s.mapACM(region, d.Certificate, chain, binds)
 		if err != nil {
 			return nil, err
 		}
@@ -104,45 +110,49 @@ func (s *syncer) syncACM(ctx context.Context, region string) ([]submit.Observati
 	return obs, nil
 }
 
-// acmRenewal says what ACM proves about renewal: ACM renews the
+// acmRenewalMode says what ACM proves about renewal: ACM renews the
 // certificates it issues (public and private) while they are eligible;
 // it never renews imported ones. Anything else is unknown, never guessed.
-func acmRenewal(d acmDetail) *submit.Renewal {
-	r := &submit.Renewal{Mode: submit.RenewalUnknown, Eligibility: d.RenewalEligibility}
-	if d.RenewalSummary != nil {
-		r.Status = d.RenewalSummary.RenewalStatus
-	}
+func acmRenewalMode(d acmDetail) string {
 	switch {
 	case (d.Type == "AMAZON_ISSUED" || d.Type == "PRIVATE") && d.RenewalEligibility == "ELIGIBLE":
-		r.Mode, r.ManagedBy = submit.RenewalExternalAutomated, "aws_acm"
+		return submit.RenewalExternalAutomated
 	case d.Type == "IMPORTED":
-		r.Mode = submit.RenewalManual
+		return submit.RenewalManual
 	}
-	return r
+	return submit.RenewalUnknown
 }
 
-func (s *syncer) mapACM(region string, d acmDetail, chain [][]byte) (submit.Observation, error) {
-	host := s.c.endpoint("acm", region)
+// acmStatus is the certificate status, with the renewal status when ACM
+// reports one (for example "ISSUED; renewal SUCCESS").
+func acmStatus(d acmDetail) string {
+	st := d.Status
+	if d.RenewalSummary != nil && d.RenewalSummary.RenewalStatus != "" {
+		st += "; renewal " + d.RenewalSummary.RenewalStatus
+	}
+	return clip(st, 64)
+}
+
+func (s *syncer) mapACM(region string, d acmDetail, chain [][]byte, binds listenerBindings) (submit.Observation, error) {
 	o := submit.Observation{
 		Target: submit.Target{
-			Kind: submit.KindCloudResource, Host: host,
-			Cloud: &submit.CloudResource{Provider: Provider, Service: "acm", ResourceID: d.CertificateArn, Region: region, Account: arnAccount(d.CertificateArn)},
+			Kind: submit.KindCloudResource, Host: s.c.endpoint("acm", region),
+			Provider: Provider, ResourceID: d.CertificateArn, ResourceType: TypeACMCertificate, Region: region,
 		},
 		Method:     submit.MethodAdapter,
 		ObservedAt: s.now,
 		Outcome:    submit.OutcomeReached,
 		Adapter: &submit.AdapterEvidence{
-			Source:    Source,
-			Hostnames: cloud.Hostnames(d.SubjectAlternativeNames, []string{d.DomainName}),
-			Renewal:   acmRenewal(d),
+			Source:      Source,
+			RenewalMode: acmRenewalMode(d),
+			Bindings:    takeBindings(binds, d.CertificateArn, s.st),
+			InUseBy:     capList(d.InUseBy, cloud.MaxBindings),
 			CloudCertificate: &submit.CloudCertificate{
-				ID: d.CertificateArn, Type: d.Type, Status: d.Status, Issuer: d.Issuer,
-				Serial: d.Serial, NotBefore: epoch(d.NotBefore), NotAfter: epoch(d.NotAfter),
+				ID: d.CertificateArn, Type: d.Type, Status: acmStatus(d), Issuer: d.Issuer,
+				Serial: clip(d.Serial, 128), NotBefore: epoch(d.NotBefore), NotAfter: epoch(d.NotAfter),
+				Hostnames: cloud.Hostnames(d.SubjectAlternativeNames, []string{d.DomainName}),
 			},
 		},
-	}
-	for _, u := range d.InUseBy {
-		o.Adapter.Bindings = append(o.Adapter.Bindings, submit.Binding{ResourceID: u, Service: arnService(u), Region: arnRegion(u)})
 	}
 	if len(chain) > 0 {
 		m, err := cloud.Metadata(chain[0])
@@ -152,6 +162,35 @@ func (s *syncer) mapACM(region string, d acmDetail, chain [][]byte) (submit.Obse
 		o.Outcome, o.ServedChain, o.Adapter.Certificate = submit.OutcomeCertSeen, chain, m
 	}
 	return o, nil
+}
+
+// takeBindings returns (and removes) the listener bindings of a
+// certificate, at most cloud.MaxBindings.
+func takeBindings(binds listenerBindings, arn string, st map[string]int) []submit.Binding {
+	b := binds[arn]
+	delete(binds, arn)
+	if len(b) > cloud.MaxBindings {
+		st[StatBindingsCapped] += len(b) - cloud.MaxBindings
+		b = b[:cloud.MaxBindings]
+	}
+	return b
+}
+
+func capList(l []string, n int) []string {
+	var out []string
+	for _, s := range l {
+		if s != "" && len(s) <= 2048 && len(out) < n {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func clip(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
 }
 
 func epoch(f *float64) *time.Time {
@@ -171,6 +210,4 @@ func arnPart(arn string, i int) string {
 	return p[i]
 }
 
-func arnService(arn string) string { return arnPart(arn, 2) }
-func arnRegion(arn string) string  { return arnPart(arn, 3) }
 func arnAccount(arn string) string { return arnPart(arn, 4) }

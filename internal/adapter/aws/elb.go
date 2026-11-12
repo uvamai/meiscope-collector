@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/uvamai/meiscope-collector/internal/adapter"
-	"github.com/uvamai/meiscope-collector/internal/adapter/cloud"
 	"github.com/uvamai/meiscope-collector/internal/submit"
 )
 
@@ -75,9 +73,33 @@ func (s *syncer) elbQuery(ctx context.Context, region, op, version string, param
 	return s.c.query(ctx, region, "elasticloadbalancing", s.c.endpoint("elasticloadbalancing", region), op, version, params, out)
 }
 
+// listenerBindings maps a certificate ARN to the TLS listeners that present
+// it. Load balancer listeners are not observations of their own: in the
+// 0.10.0 proposal a listener is a binding (host name, port, listener ID) of
+// the certificate it serves.
+type listenerBindings map[string][]submit.Binding
+
+func (lb listenerBindings) add(certARN, dns string, port int, listenerID string) {
+	dns = strings.TrimSuffix(strings.ToLower(dns), ".")
+	if certARN == "" || dns == "" || len(dns) > 253 {
+		return
+	}
+	b := submit.Binding{Hostname: dns, ResourceID: listenerID}
+	if port >= 1 && port <= 65535 {
+		b.Port = port
+	}
+	for _, x := range lb[certARN] {
+		if x == b {
+			return
+		}
+	}
+	lb[certARN] = append(lb[certARN], b)
+}
+
 // syncELB reads Application and Network Load Balancer listeners (elbv2)
-// and Classic Load Balancer listeners that present a certificate.
-func (s *syncer) syncELB(ctx context.Context, region string) ([]submit.Observation, error) {
+// and Classic Load Balancer listeners that present a certificate, and
+// records them as bindings of their certificates (ACM or IAM).
+func (s *syncer) syncELB(ctx context.Context, region string, out listenerBindings) error {
 	lbs, err := adapter.Paginate(ctx, s.maxPages, func(ctx context.Context, marker string) (adapter.Page[elbv2LB], error) {
 		var out elbv2LBsOut
 		p := url.Values{"PageSize": {"400"}}
@@ -90,9 +112,8 @@ func (s *syncer) syncELB(ctx context.Context, region string) ([]submit.Observati
 		return adapter.Page[elbv2LB]{Items: out.LoadBalancers, Next: out.NextMarker}, nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("elbv2 %s: describe load balancers: %w", region, err)
+		return fmt.Errorf("elbv2 %s: describe load balancers: %w", region, err)
 	}
-	var obs []submit.Observation
 	for _, lb := range lbs {
 		ls, err := adapter.Paginate(ctx, s.maxPages, func(ctx context.Context, marker string) (adapter.Page[elbv2Listener], error) {
 			var out elbv2ListenersOut
@@ -106,7 +127,7 @@ func (s *syncer) syncELB(ctx context.Context, region string) ([]submit.Observati
 			return adapter.Page[elbv2Listener]{Items: out.Listeners, Next: out.NextMarker}, nil
 		})
 		if err != nil {
-			return nil, fmt.Errorf("elbv2 %s: describe listeners: %w", region, err)
+			return fmt.Errorf("elbv2 %s: describe listeners: %w", region, err)
 		}
 		for _, l := range ls {
 			if !tlsProtocols[l.Protocol] {
@@ -126,9 +147,11 @@ func (s *syncer) syncELB(ctx context.Context, region string) ([]submit.Observati
 				return adapter.Page[elbv2Cert]{Items: out.Certificates, Next: out.NextMarker}, nil
 			})
 			if err != nil {
-				return nil, fmt.Errorf("elbv2 %s: describe listener certificates: %w", region, err)
+				return fmt.Errorf("elbv2 %s: describe listener certificates: %w", region, err)
 			}
-			obs = append(obs, s.listenerObservation(region, "elbv2_listener", l.ListenerArn, lb.DNSName, lb.Scheme, l.Port, l.Protocol, append(l.Certificates, extra...)))
+			for _, c := range append(l.Certificates, extra...) {
+				out.add(c.CertificateArn, lb.DNSName, l.Port, l.ListenerArn)
+			}
 		}
 	}
 
@@ -144,7 +167,7 @@ func (s *syncer) syncELB(ctx context.Context, region string) ([]submit.Observati
 		return adapter.Page[classicLB]{Items: out.LoadBalancers, Next: out.NextMarker}, nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("elb classic %s: describe load balancers: %w", region, err)
+		return fmt.Errorf("elb classic %s: describe load balancers: %w", region, err)
 	}
 	for _, lb := range classic {
 		for _, l := range lb.Listeners {
@@ -156,11 +179,10 @@ func (s *syncer) syncELB(ctx context.Context, region string) ([]submit.Observati
 			// taken from the certificate's ARN).
 			id := "arn:" + partitionOf(l.SSLCertificateID) + ":elasticloadbalancing:" + region + ":" + arnAccount(l.SSLCertificateID) +
 				":loadbalancer/" + lb.LoadBalancerName + "/listener/" + strconv.Itoa(l.LoadBalancerPort)
-			obs = append(obs, s.listenerObservation(region, "elb_listener", id, lb.DNSName, lb.Scheme, l.LoadBalancerPort, l.Protocol,
-				[]elbv2Cert{{CertificateArn: l.SSLCertificateID, IsDefault: true}}))
+			out.add(l.SSLCertificateID, lb.DNSName, l.LoadBalancerPort, id)
 		}
 	}
-	return obs, nil
+	return nil
 }
 
 func partitionOf(arn string) string {
@@ -168,44 +190,4 @@ func partitionOf(arn string) string {
 		return p
 	}
 	return "aws"
-}
-
-// listenerObservation maps a TLS listener: outcome reached (the listener was
-// read; the certificate itself is observed through ACM or IAM), the
-// endpoint, and a binding per certificate, default first.
-func (s *syncer) listenerObservation(region, service, id, dns, scheme string, port int, protocol string, certs []elbv2Cert) submit.Observation {
-	merged := map[string]bool{}
-	var order []string
-	for _, c := range certs {
-		if c.CertificateArn == "" {
-			continue
-		}
-		if _, seen := merged[c.CertificateArn]; !seen {
-			order = append(order, c.CertificateArn)
-		}
-		merged[c.CertificateArn] = merged[c.CertificateArn] || c.IsDefault
-	}
-	sort.SliceStable(order, func(i, j int) bool {
-		if merged[order[i]] != merged[order[j]] {
-			return merged[order[i]]
-		}
-		return order[i] < order[j]
-	})
-	ep := &submit.Endpoint{DNSName: strings.ToLower(dns), Protocol: protocol, Scheme: scheme}
-	if port >= 1 && port <= 65535 {
-		ep.Port = port
-	}
-	o := submit.Observation{
-		Target: submit.Target{
-			Kind: submit.KindCloudResource, Host: s.c.endpoint("elasticloadbalancing", region),
-			Cloud: &submit.CloudResource{Provider: Provider, Service: service, ResourceID: id, Region: region, Account: arnAccount(id)},
-		},
-		Method: submit.MethodAdapter, ObservedAt: s.now, Outcome: submit.OutcomeReached,
-		Adapter: &submit.AdapterEvidence{Source: Source, Hostnames: cloud.Hostnames([]string{dns}), Endpoint: ep},
-	}
-	for _, arn := range order {
-		svc := arnService(arn) // acm or iam
-		o.Adapter.Bindings = append(o.Adapter.Bindings, submit.Binding{ResourceID: arn, Service: svc, Region: arnRegion(arn), IsDefault: cloud.Bool(merged[arn])})
-	}
-	return o
 }

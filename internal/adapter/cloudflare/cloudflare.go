@@ -365,25 +365,47 @@ func (a *Adapter) zones(ctx context.Context, c *client, cfg adapter.Config) ([]z
 	return list[zone](ctx, c, "zones", nil)
 }
 
-func target(host, service, id string, z zone) submit.Target {
+// Resource types of the observed resources.
+const (
+	TypeCertificatePack   = "Cloudflare::CertificatePack"
+	TypeCustomCertificate = "Cloudflare::CustomCertificate"
+	TypeOriginCA          = "Cloudflare::OriginCACertificate"
+)
+
+// target locates a zone's certificate: resource_id is "<zone ID>/<ID>".
+func target(host, resourceType, id string, z zone) submit.Target {
 	return submit.Target{
 		Kind: submit.KindCloudResource, Host: host,
-		Cloud: &submit.CloudResource{Provider: Provider, Service: service, ResourceID: id, Account: z.ID},
+		Provider: Provider, ResourceID: z.ID + "/" + id, ResourceType: resourceType,
 	}
+}
+
+// edgeBindings are the host names Cloudflare's edge serves a certificate
+// for, as configured on the zone (resource_id is the zone ID).
+func edgeBindings(hosts []string, z zone) []submit.Binding {
+	var out []submit.Binding
+	for _, h := range cloud.Hostnames(hosts) {
+		if len(out) == cloud.MaxBindings {
+			break
+		}
+		out = append(out, submit.Binding{Hostname: h, ResourceID: z.ID})
+	}
+	return out
 }
 
 // packObservation maps an edge certificate pack. The API returns
 // certificate metadata, not the certificate, so the outcome is reached.
+// Cloudflare issues and renews universal, advanced and total TLS packs.
 func packObservation(host string, z zone, p certPack, now time.Time) submit.Observation {
 	ev := &submit.AdapterEvidence{
-		Source:    Source,
-		Hostnames: cloud.Hostnames(p.Hosts),
-		Renewal:   &submit.Renewal{Mode: submit.RenewalUnknown, Status: p.Status},
+		Source:      Source,
+		RenewalMode: submit.RenewalUnknown,
+		Bindings:    edgeBindings(p.Hosts, z),
 	}
 	if managedPackTypes[p.Type] {
-		ev.Renewal.Mode, ev.Renewal.ManagedBy = submit.RenewalExternalAutomated, "cloudflare"
+		ev.RenewalMode = submit.RenewalExternalAutomated
 	}
-	cc := &submit.CloudCertificate{ID: p.ID, Type: p.Type, Status: p.Status, Issuer: p.CertificateAuthority}
+	cc := &submit.CloudCertificate{ID: p.ID, Type: p.Type, Status: clip(p.Status, 64), Issuer: p.CertificateAuthority, Hostnames: cloud.Hostnames(p.Hosts)}
 	for _, c := range p.Certificates {
 		if c.ID == p.PrimaryCertificate || (p.PrimaryCertificate == "" && cc.NotAfter == nil) {
 			if c.Issuer != "" {
@@ -391,39 +413,38 @@ func packObservation(host string, z zone, p certPack, now time.Time) submit.Obse
 			}
 			cc.Serial, cc.NotAfter = clip(c.Serial, 128), cloud.TimePtr(c.ExpiresOn.Time)
 		}
-		ev.Bindings = append(ev.Bindings, submit.Binding{ResourceID: c.ID, Service: "edge_certificate", Hostnames: cloud.Hostnames(c.Hosts)})
 	}
 	ev.CloudCertificate = cc
-	return submit.Observation{Target: target(host, "certificate_pack", p.ID, z), Method: submit.MethodAdapter, ObservedAt: now, Outcome: submit.OutcomeReached, Adapter: ev}
+	return submit.Observation{Target: target(host, TypeCertificatePack, p.ID, z), Method: submit.MethodAdapter, ObservedAt: now, Outcome: submit.OutcomeReached, Adapter: ev}
 }
 
 // customObservation maps an uploaded custom certificate: the customer
 // uploads and replaces it, so renewal is manual.
 func customObservation(host string, z zone, c cfCert, now time.Time) submit.Observation {
 	return submit.Observation{
-		Target: target(host, "custom_certificate", c.ID, z), Method: submit.MethodAdapter, ObservedAt: now, Outcome: submit.OutcomeReached,
+		Target: target(host, TypeCustomCertificate, c.ID, z), Method: submit.MethodAdapter, ObservedAt: now, Outcome: submit.OutcomeReached,
 		Adapter: &submit.AdapterEvidence{
-			Source:    Source,
-			Hostnames: cloud.Hostnames(c.Hosts),
-			Renewal:   &submit.Renewal{Mode: submit.RenewalManual},
+			Source:      Source,
+			RenewalMode: submit.RenewalManual,
+			Bindings:    edgeBindings(c.Hosts, z),
 			CloudCertificate: &submit.CloudCertificate{
-				ID: c.ID, Type: "custom", Status: c.Status, Issuer: c.Issuer, Serial: clip(c.Serial, 128),
-				NotAfter: cloud.TimePtr(c.ExpiresOn.Time),
+				ID: c.ID, Type: "custom", Status: clip(c.Status, 64), Issuer: c.Issuer, Serial: clip(c.Serial, 128),
+				NotAfter: cloud.TimePtr(c.ExpiresOn.Time), Hostnames: cloud.Hostnames(c.Hosts),
 			},
 		},
 	}
 }
 
 // originObservation maps an Origin CA certificate. The API returns the
-// public certificate (never a key), so the outcome is cert_seen.
+// public certificate (never a key), so the outcome is cert_seen. It is
+// installed on the customer's origin, not served by the edge: no bindings.
 func originObservation(host string, z zone, oc originCert, now time.Time) (submit.Observation, error) {
 	o := submit.Observation{
-		Target: target(host, "origin_ca_certificate", oc.ID, z), Method: submit.MethodAdapter, ObservedAt: now, Outcome: submit.OutcomeReached,
+		Target: target(host, TypeOriginCA, oc.ID, z), Method: submit.MethodAdapter, ObservedAt: now, Outcome: submit.OutcomeReached,
 		Adapter: &submit.AdapterEvidence{
 			Source:           Source,
-			Hostnames:        cloud.Hostnames(oc.Hostnames),
-			Renewal:          &submit.Renewal{Mode: submit.RenewalManual},
-			CloudCertificate: &submit.CloudCertificate{ID: oc.ID, Type: oc.RequestType},
+			RenewalMode:      submit.RenewalManual,
+			CloudCertificate: &submit.CloudCertificate{ID: oc.ID, Type: oc.RequestType, Hostnames: cloud.Hostnames(oc.Hostnames)},
 		},
 	}
 	chain, err := cloud.ParsePEMChain(oc.Certificate)

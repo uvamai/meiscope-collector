@@ -20,7 +20,7 @@ var t0 = time.Date(2026, 11, 13, 0, 0, 0, 0, time.UTC)
 
 func obs(id, status string) submit.Observation {
 	return submit.Observation{
-		Target:     submit.Target{Kind: submit.KindCloudResource, Host: "api.example.test", Cloud: &submit.CloudResource{Provider: "aws", Service: "acm", ResourceID: id}},
+		Target:     submit.Target{Kind: submit.KindCloudResource, Host: "api.example.test", Provider: "aws", ResourceType: "AWS::CertificateManager::Certificate", ResourceID: id},
 		Method:     submit.MethodAdapter,
 		ObservedAt: t0,
 		Outcome:    submit.OutcomeReached,
@@ -31,7 +31,7 @@ func obs(id, status string) submit.Observation {
 func ids(o []submit.Observation) string {
 	var s []string
 	for _, x := range o {
-		s = append(s, x.Target.Cloud.ResourceID)
+		s = append(s, x.Target.ResourceID)
 	}
 	return strings.Join(s, ",")
 }
