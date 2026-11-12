@@ -66,6 +66,29 @@ func settle(t *testing.T, s *probeSchedule) {
 	}
 }
 
+// tickUntil ticks until the run want has started. A replacement may start in
+// the same tick that cancelled its predecessor (the cancelled run can finish
+// between prune and start), or only at a later tick: both are correct, so the
+// test does not assume either.
+func tickUntil(ctx context.Context, t *testing.T, s *probeSchedule, ch chan string, want string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		select {
+		case got := <-ch:
+			if got != want {
+				t.Fatalf("got %s, want %s", got, want)
+			}
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", want)
+		}
+		s.tick(ctx)
+	}
+}
+
 func wantRunning(t *testing.T, s *probeSchedule, n int) {
 	t.Helper()
 	if got := running(s); got != n {
@@ -111,17 +134,15 @@ func TestEnrolledScheduleRunsExactlyTheHeldScopes(t *testing.T) {
 	refresh(corePayload(t, "scope-b", 1, now))
 	rt.sched.tick(ctx)
 	expect(t, runs.cancelled, "scope-a@1")
-	settle(t, rt.sched)
-	rt.sched.tick(ctx)
-	expect(t, runs.started, "scope-b@1")
+	tickUntil(ctx, t, rt.sched, runs.started, "scope-b@1")
+	wantRunning(t, rt.sched, 1)
 
 	// A new version of scope-b replaces the run in progress.
 	refresh(corePayload(t, "scope-b", 2, now))
 	rt.sched.tick(ctx)
 	expect(t, runs.cancelled, "scope-b@1")
-	settle(t, rt.sched)
-	rt.sched.tick(ctx)
-	expect(t, runs.started, "scope-b@2")
+	tickUntil(ctx, t, rt.sched, runs.started, "scope-b@2")
+	wantRunning(t, rt.sched, 1)
 
 	// Paused: nothing starts until resume.
 	refresh()
@@ -264,9 +285,8 @@ func TestScheduleVerifiesEveryTickWithTheCurrentKeys(t *testing.T) {
 	setList(keyB.sign(corePayload(t, "scope-2", 2, now)))
 	s.tick(ctx)
 	expect(t, runs.cancelled, "scope-2@1")
-	settle(t, s)
-	s.tick(ctx)
-	expect(t, runs.started, "scope-2@2")
+	tickUntil(ctx, t, s, runs.started, "scope-2@2")
+	wantRunning(t, s, 1)
 	setList(keyB.sign(corePayload(t, "scope-2", 1, now)))
 	s.tick(ctx)
 	expect(t, runs.cancelled, "scope-2@2")
