@@ -96,10 +96,11 @@ type Buffer struct {
 	acked   uint64
 	nextSeq uint64
 	expired int
+	corrupt int
 }
 
 // Open opens or creates the buffer in opts.Dir, recovering from a torn
-// final record left by a crash.
+// final record left by a crash and skipping corrupt records (see scan).
 func Open(opts Options) (*Buffer, error) {
 	if len(opts.Key) != KeySize {
 		return nil, fmt.Errorf("buffer key must be %d bytes", KeySize)
@@ -166,6 +167,14 @@ func (b *Buffer) Expired() int {
 	return b.expired
 }
 
+// Corrupt returns how many records Open skipped because they did not
+// authenticate (each was one lost observation).
+func (b *Buffer) Corrupt() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.corrupt
+}
+
 func (b *Buffer) path(name string) string { return filepath.Join(b.opts.Dir, name) }
 
 func (b *Buffer) loadAck() error {
@@ -187,8 +196,19 @@ func (b *Buffer) loadAck() error {
 }
 
 // scan reads the record headers, authenticating every unacknowledged
-// record, and truncates a torn or corrupt tail. A first record that does
-// not authenticate means a wrong key: Open fails rather than discard data.
+// record.
+//
+//   - A record whose framing is intact (a plausible length and a complete
+//     body) but that does not authenticate is skipped by its length, counted
+//     (Corrupt) and logged: one damaged record does not cost the valid
+//     records after it. Skipped records left at the end of the log are
+//     truncated with the tail.
+//   - A header with an impossible length, or a body cut short, means the
+//     framing cannot be followed: everything from there is truncated, as a
+//     torn tail left by a crash is, and logged as an error when complete
+//     records are lost with it.
+//   - When no record authenticates at all, the key is wrong: Open fails
+//     rather than discard data.
 func (b *Buffer) scan() error {
 	f, err := os.OpenFile(b.path(logName), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -196,9 +216,12 @@ func (b *Buffer) scan() error {
 	}
 	b.f = f
 	b.nextSeq = b.acked + 1
-	var off int64
+	var off, goodEnd int64 // goodEnd: the end of the last authenticated record
+	var firstErr error
+	authenticated, skipped := 0, 0
+	var skippedBytes int64
+	framingBroken := false
 	hdr := make([]byte, headerSize)
-	first := true
 	for {
 		if _, err := f.ReadAt(hdr, off); err != nil {
 			break // EOF or a torn header
@@ -206,20 +229,24 @@ func (b *Buffer) scan() error {
 		seq := binary.BigEndian.Uint64(hdr[:8])
 		n := int64(binary.BigEndian.Uint32(hdr[8:]))
 		if n <= 0 || n > maxRecord {
+			framingBroken = true
 			break
 		}
 		body := make([]byte, n)
 		if _, err := f.ReadAt(body, off+headerSize); err != nil {
-			break
+			break // a torn final record
 		}
 		rec, err := b.open(seq, body)
 		if err != nil {
-			if first {
-				return fmt.Errorf("buffer: the first record does not decrypt (wrong buffer key?): %w", err)
+			if firstErr == nil {
+				firstErr = err
 			}
-			break
+			skipped++
+			skippedBytes += headerSize + n
+			off += headerSize + n
+			continue
 		}
-		first = false
+		authenticated++
 		if seq > b.acked {
 			b.pending = append(b.pending, entry{seq: seq, at: rec.At, off: off, n: headerSize + n})
 		}
@@ -227,14 +254,32 @@ func (b *Buffer) scan() error {
 			b.nextSeq = seq + 1
 		}
 		off += headerSize + n
+		goodEnd = off
 	}
-	if fi, err := f.Stat(); err == nil && fi.Size() > off {
-		b.opts.Log.Warn("buffer: dropping a torn or corrupt tail", "bytes", fi.Size()-off)
-		if err := f.Truncate(off); err != nil {
+	if authenticated == 0 && skipped > 0 {
+		return fmt.Errorf("buffer: no record decrypts (wrong buffer key?): %w", firstErr)
+	}
+	if skipped > 0 {
+		b.corrupt = skipped
+		b.opts.Log.Error("buffer: skipped records that do not authenticate; their observations are lost",
+			"records", skipped, "bytes", skippedBytes, "error", firstErr)
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("buffer: %w", err)
+	}
+	if fi.Size() > goodEnd {
+		if framingBroken {
+			b.opts.Log.Error("buffer: a record header is unreadable, so the records after it cannot be found; dropping the rest of the log",
+				"offset", off, "bytes", fi.Size()-goodEnd)
+		} else {
+			b.opts.Log.Warn("buffer: dropping a torn or corrupt tail", "bytes", fi.Size()-goodEnd)
+		}
+		if err := f.Truncate(goodEnd); err != nil {
 			return fmt.Errorf("buffer: %w", err)
 		}
 	}
-	b.size = off
+	b.size = goodEnd
 	return nil
 }
 
@@ -282,8 +327,14 @@ func (b *Buffer) open(seq uint64, body []byte) (record, error) {
 	return rec, nil
 }
 
-// Enqueue appends observations durably (written and synced) in order.
+// Enqueue appends observations durably (written and synced) in order. It
+// refuses the whole call, writing nothing, when any observation carries
+// private-key armour (submit.ErrPrivateKeyMaterial): a key must not reach
+// the disk either.
 func (b *Buffer) Enqueue(_ context.Context, obs []submit.Observation) error {
+	if err := submit.CheckObservations(obs); err != nil {
+		return fmt.Errorf("buffer: %w", err)
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.f == nil {
