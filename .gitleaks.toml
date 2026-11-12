@@ -15,3 +15,12 @@ regexes = [
   '''^\s*for name, creds := range map\[string\]staticCreds\{"missing": \{\}, "short": \{"buffer_key": "c2VjcmV0LXNob3J0LXZhbHVl"\}, "not base64": \{"buffer_key": "!!secret-key-material!!"\}\} \{$''',
   '''^\s*for _, leak := range \[\]string\{"secret-key-material", "c2VjcmV0LXNob3J0LXZhbHVl", "secret-short-value"\} \{$''',
 ]
+
+[[allowlists]]
+description = "ACM key-algorithm names (an enum, not a secret) in synthetic AWS fixtures of an earlier commit of WP1.2; generic-api-key matched \"KeyAlgorithm\": \"EC_prime256v1\""
+condition = "AND"
+regexTarget = "line"
+paths = ['''^testdata/adapters/aws/synthetic-full/[0-9]{3}\.json$''']
+regexes = [
+  '''^\s*"KeyAlgorithm": "(RSA_(1024|2048|3072|4096)|EC_(prime256v1|secp384r1|secp521r1))",?$''',
+]
