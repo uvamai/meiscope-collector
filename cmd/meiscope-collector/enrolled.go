@@ -158,18 +158,18 @@ func newEnrolledRuntime(getenv func(string) string, cfg platform.Config, log *sl
 		scopes:  scopesync.New(sub.Scopes, keys, tr, deps.clk, log),
 		renewer: &enrol.Renewer{Store: store, Client: ecl, Clock: deps.clk, Log: log},
 	}
-	// The probe schedule runs exactly the scopes the set holds now, verifies
-	// each again against the pinned keys, and keeps its own in-memory version
-	// record (the set's record on disk already refuses rollbacks).
-	ring, err := keys()
-	if err != nil {
-		return nil, err
-	}
+	// The probe schedule runs exactly the scopes the set holds now and
+	// verifies each again against the pinned keys, read on every tick (a
+	// renewal may rotate them). Nothing runs once the collector certificate
+	// has ended, even before the renewer notices, and no run outlives it.
+	// The schedule keeps its own in-memory version record; the set's record
+	// on disk already refuses rollbacks.
 	schedTracker, err := scope.LoadTracker("")
 	if err != nil {
 		return nil, err
 	}
-	rt.sched = newSchedule(func() ([]scope.Signed, error) { return rt.scopes.Signed(), nil }, ring, schedTracker, log)
+	rt.sched = newSchedule(func() ([]scope.Signed, error) { return rt.scopes.Signed(), nil }, keys, schedTracker, log)
+	rt.sched.deadline = store.NotAfter
 	rt.sched.clk = deps.clk
 	rt.sched.submit = submitTo(sub, log)
 	if ctEvery > 0 {

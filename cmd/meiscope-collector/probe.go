@@ -104,16 +104,24 @@ type runFunc func(ctx context.Context, sc *scope.Scope, emit func(submit.Observa
 // probeSchedule rescans every verified scope on its own interval. It runs
 // only the scopes its source lists now: a scope that is no longer listed,
 // has expired, or changed version has its run in progress cancelled at the
-// next tick, and stopAll cancels everything at once.
+// next tick, and stopAll cancels everything at once. A run also ends by its
+// own deadline: the scope's not_after, or the end of the collector's
+// credential (deadline), whichever comes first.
+//
+// One scope runs at a time. The runner applies ScanPolicy (rate per /24,
+// one connection per target:port) within a run; running scopes one after
+// another keeps those limits true for the whole collector when two scopes
+// cover the same targets or networks.
 type probeSchedule struct {
-	source  scopeSource
-	ring    scope.Keyring
-	tracker *scope.Tracker
-	run     *runner.Runner
-	runFn   runFunc
-	clk     clock.Clock
-	log     *slog.Logger
-	submit  func(context.Context, []submit.Observation) error
+	source   scopeSource
+	keys     func() (scope.Keyring, error) // read on every tick: renewal may rotate them
+	deadline func() time.Time              // zero: none beyond the scope's own
+	tracker  *scope.Tracker
+	run      *runner.Runner
+	runFn    runFunc
+	clk      clock.Clock
+	log      *slog.Logger
+	submit   func(context.Context, []submit.Observation) error
 
 	mu       sync.Mutex
 	next     map[string]time.Time // scope ID -> next run
@@ -134,15 +142,27 @@ type scopeRun struct {
 // changed, and starts every run that is due. A scope that fails
 // verification is never run; the others still are.
 func (s *probeSchedule) tick(ctx context.Context) {
-	signed, err := s.source()
-	if err != nil {
-		s.log.ErrorContext(ctx, "scopes not loaded", "error", err)
-		return
-	}
 	now := s.clk.Now()
 	live := map[string]*scope.Scope{}
+	// Fail closed: without a readable source or keys nothing is live, so
+	// every run in progress is cancelled.
+	signed, err := s.source()
+	if err != nil {
+		s.log.ErrorContext(ctx, "scopes not loaded; no scope runs", "error", err)
+		s.prune(ctx, live, now)
+		return
+	}
+	ring, err := s.keys()
+	if err != nil {
+		s.log.ErrorContext(ctx, "scope-signing keys not loaded; no scope runs", "error", err)
+		s.prune(ctx, live, now)
+		return
+	}
+	if d := s.credentialEnd(); !d.IsZero() && !now.Before(d) {
+		signed = nil // the collector's credential has ended: nothing may run
+	}
 	for _, sg := range signed {
-		sc, err := scope.VerifyKeyring(sg, s.ring, now)
+		sc, err := scope.VerifyKeyring(sg, ring, now)
 		if err == nil {
 			err = s.tracker.Accept(sc, sg.Payload)
 		}
@@ -195,18 +215,34 @@ func (s *probeSchedule) prune(ctx context.Context, live map[string]*scope.Scope,
 	}
 }
 
-// start marks a run of sc as running when it is due and the schedule is
-// not stopped; the returned context is cancelled by prune or stopAll.
+func (s *probeSchedule) credentialEnd() time.Time {
+	if s.deadline == nil {
+		return time.Time{}
+	}
+	return s.deadline()
+}
+
+// start marks a run of sc as running when it is due, the schedule is not
+// stopped and no other scope is running; the returned context is
+// cancelled by prune or stopAll, and ends by itself at the scope's
+// not_after or the end of the collector's credential.
 func (s *probeSchedule) start(ctx context.Context, sc *scope.Scope, now time.Time) (context.Context, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.stopped {
+	if s.stopped || len(s.running) > 0 || now.Before(s.next[sc.ID]) {
 		return nil, false
 	}
-	if _, busy := s.running[sc.ID]; busy || now.Before(s.next[sc.ID]) {
+	end := sc.NotAfter
+	if d := s.credentialEnd(); !d.IsZero() && d.Before(end) {
+		end = d
+	}
+	left := end.Sub(now)
+	if left <= 0 {
 		return nil, false
 	}
-	runCtx, cancel := context.WithCancel(ctx)
+	// A timeout from the schedule's clock: on the system clock it is the
+	// same instant as end; the next tick's prune also checks validity.
+	runCtx, cancel := context.WithTimeout(ctx, left)
 	s.running[sc.ID] = scopeRun{version: sc.Version, cancel: cancel}
 	return runCtx, true
 }
@@ -233,6 +269,12 @@ func (s *probeSchedule) stopAll(reason string) {
 		r.cancel()
 	}
 	clear(s.next)
+}
+
+func (s *probeSchedule) isStopped() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stopped
 }
 
 // scheduleStatus is what GET /status shows of the schedule.
@@ -274,7 +316,14 @@ func (s *probeSchedule) runScope(ctx context.Context, sc *scope.Scope, started t
 		"planned", rep.Planned, "denied", rep.Denied, "attempts", rep.Attempts, "not_run", rep.NotRun,
 		"outcomes", rep.Outcomes, "dry_run", rep.DryRun, "error", err)
 	if len(obs) > 0 {
-		if serr := s.submit(ctx, obs); serr != nil {
+		if s.isStopped() {
+			s.log.WarnContext(ctx, "observations not submitted: probing is stopped", "scope", sc.ID, "count", len(obs))
+			return
+		}
+		// What a cancelled run already saw is still sent.
+		subCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+		defer cancel()
+		if serr := s.submit(subCtx, obs); serr != nil {
 			s.log.ErrorContext(ctx, "observations not submitted", "scope", sc.ID, "count", len(obs), "error", serr)
 		}
 	}
@@ -336,7 +385,7 @@ func newProbeSchedule(getenv func(string) string, sub *submit.Client, stdout io.
 	if getenv(envScopeState) == "" {
 		log.Warn(envScopeState + " is not set: accepted scope versions are not kept across restarts")
 	}
-	s := newSchedule(scopeFileSource(path), ring, tr, log)
+	s := newSchedule(scopeFileSource(path), func() (scope.Keyring, error) { return ring, nil }, tr, log)
 	if sub != nil {
 		s.submit = submitTo(sub, log)
 	} else {
@@ -352,10 +401,10 @@ func newProbeSchedule(getenv func(string) string, sub *submit.Client, stdout io.
 }
 
 // newSchedule is a schedule over source with the default runner.
-func newSchedule(source scopeSource, ring scope.Keyring, tr *scope.Tracker, log *slog.Logger) *probeSchedule {
+func newSchedule(source scopeSource, keys func() (scope.Keyring, error), tr *scope.Tracker, log *slog.Logger) *probeSchedule {
 	r := runner.New(runner.Options{Logger: log})
 	return &probeSchedule{
-		source: source, ring: ring, tracker: tr, clk: clock.System{}, log: log,
+		source: source, keys: keys, tracker: tr, clk: clock.System{}, log: log,
 		run: r, runFn: r.Run,
 		next: map[string]time.Time{}, running: map[string]scopeRun{},
 	}
