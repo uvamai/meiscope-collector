@@ -91,8 +91,8 @@ func readScopes(path string) ([]scope.Signed, error) {
 // again here, against the pinned keys, before anything is planned.
 type scopeSource func() ([]scope.Signed, error)
 
-// fileSource reads MEISCOPE_SCOPE_FILE on every tick.
-func fileSource(path string) scopeSource {
+// scopeFileSource reads MEISCOPE_SCOPE_FILE on every tick.
+func scopeFileSource(path string) scopeSource {
 	return func() ([]scope.Signed, error) { return readScopes(path) }
 }
 
@@ -117,15 +117,15 @@ type probeSchedule struct {
 
 	mu       sync.Mutex
 	next     map[string]time.Time // scope ID -> next run
-	running  map[string]run
+	running  map[string]scopeRun
 	stopped  bool
 	lastTick time.Time
 	live     int
 	wg       sync.WaitGroup
 }
 
-// run is a scope run in progress.
-type run struct {
+// scopeRun is a scope run in progress.
+type scopeRun struct {
 	version int64
 	cancel  context.CancelFunc
 }
@@ -207,7 +207,7 @@ func (s *probeSchedule) start(ctx context.Context, sc *scope.Scope, now time.Tim
 		return nil, false
 	}
 	runCtx, cancel := context.WithCancel(ctx)
-	s.running[sc.ID] = run{version: sc.Version, cancel: cancel}
+	s.running[sc.ID] = scopeRun{version: sc.Version, cancel: cancel}
 	return runCtx, true
 }
 
@@ -336,7 +336,7 @@ func newProbeSchedule(getenv func(string) string, sub *submit.Client, stdout io.
 	if getenv(envScopeState) == "" {
 		log.Warn(envScopeState + " is not set: accepted scope versions are not kept across restarts")
 	}
-	s := newSchedule(fileSource(path), ring, tr, log)
+	s := newSchedule(scopeFileSource(path), ring, tr, log)
 	if sub != nil {
 		s.submit = submitTo(sub, log)
 	} else {
@@ -357,7 +357,7 @@ func newSchedule(source scopeSource, ring scope.Keyring, tr *scope.Tracker, log 
 	return &probeSchedule{
 		source: source, ring: ring, tracker: tr, clk: clock.System{}, log: log,
 		run: r, runFn: r.Run,
-		next: map[string]time.Time{}, running: map[string]run{},
+		next: map[string]time.Time{}, running: map[string]scopeRun{},
 	}
 }
 
