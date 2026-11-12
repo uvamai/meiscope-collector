@@ -70,6 +70,11 @@ func TestAdapterList(t *testing.T) {
 	if code != 0 || !strings.Contains(out.String(), "osquery") || !strings.Contains(out.String(), "credential: api_token") {
 		t.Fatalf("exit %d\n%s%s", code, out.String(), errb.String())
 	}
+	for _, name := range []string{"kubernetes\t", "x509-certificate-exporter\t", "qualys\t", "tenable\t"} {
+		if !strings.Contains(out.String(), name) {
+			t.Errorf("adapter list lacks %q", name)
+		}
+	}
 	for _, args := range [][]string{{"adapter"}, {"adapter", "nope"}, {"adapter", "run"}, {"adapter", "run", "--config", "/missing.json"}} {
 		out.Reset()
 		errb.Reset()

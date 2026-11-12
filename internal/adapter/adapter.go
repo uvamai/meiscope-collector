@@ -86,20 +86,32 @@ type Features struct {
 	// LocalStoreV1 enables store and file targets and adapter evidence
 	// (proposed contract 0.5.0). Environment: MEISCOPE_FEATURE_LOCAL_STORE_V1.
 	LocalStoreV1 bool
+	// AdapterEvidenceV2 enables adapter observations that contract 0.9.0
+	// does not allow (proposed contract 0.10.0, api/proposed): host_port_sni
+	// targets with adapter evidence (scanner exports) and certificates
+	// identified by issuer and serial when the source reports no SHA-1
+	// (x509-certificate-exporter, Qualys). Environment:
+	// MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2.
+	AdapterEvidenceV2 bool
 }
 
 // EnvLocalStoreV1 is the environment variable of Features.LocalStoreV1.
 const EnvLocalStoreV1 = "MEISCOPE_FEATURE_LOCAL_STORE_V1"
 
+// EnvAdapterEvidenceV2 is the environment variable of Features.AdapterEvidenceV2.
+const EnvAdapterEvidenceV2 = "MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2"
+
 // LoadFeatures reads the feature switches through getenv; unset means off.
 func LoadFeatures(getenv func(string) string) (Features, error) {
 	var f Features
-	if v := strings.TrimSpace(getenv(EnvLocalStoreV1)); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return Features{}, fmt.Errorf("%s: want true or false, got %q", EnvLocalStoreV1, v)
+	for name, dst := range map[string]*bool{EnvLocalStoreV1: &f.LocalStoreV1, EnvAdapterEvidenceV2: &f.AdapterEvidenceV2} {
+		if v := strings.TrimSpace(getenv(name)); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return Features{}, fmt.Errorf("%s: want true or false, got %q", name, v)
+			}
+			*dst = b
 		}
-		f.LocalStoreV1 = b
 	}
 	return f, nil
 }

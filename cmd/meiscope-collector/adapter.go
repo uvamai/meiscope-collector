@@ -17,7 +17,10 @@ import (
 	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/adapter"
-	"github.com/uvamai/meiscope-collector/internal/adapter/osquery" // registers the osquery adapter
+	_ "github.com/uvamai/meiscope-collector/internal/adapter/kubernetes"   // registers the kubernetes adapter
+	"github.com/uvamai/meiscope-collector/internal/adapter/osquery"        // registers the osquery adapter
+	_ "github.com/uvamai/meiscope-collector/internal/adapter/scanexport"   // registers the qualys and tenable adapters
+	_ "github.com/uvamai/meiscope-collector/internal/adapter/x509exporter" // registers the x509-certificate-exporter adapter
 	"github.com/uvamai/meiscope-collector/internal/buffer"
 	"github.com/uvamai/meiscope-collector/internal/clock"
 	"github.com/uvamai/meiscope-collector/internal/credential"
@@ -252,6 +255,9 @@ func adapterRunCmd(ctx context.Context, args []string, stdout, stderr io.Writer,
 	}
 	if !feats.LocalStoreV1 {
 		log.Warn(adapter.EnvLocalStoreV1 + " is off: store and file observations (osquery) are counted and logged but not sent, because the core has not adopted them yet")
+	}
+	if !feats.AdapterEvidenceV2 {
+		log.Info(adapter.EnvAdapterEvidenceV2 + " is off: x509-certificate-exporter, Qualys and Tenable observations (proposed contract 0.10.0) are counted and logged but not sent")
 	}
 	env := adapter.Env{HTTP: hc, Creds: creds, Clock: deps.clk, Log: log, Features: feats}
 

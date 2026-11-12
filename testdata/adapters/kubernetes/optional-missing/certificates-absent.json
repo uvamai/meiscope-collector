@@ -1,0 +1,20 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/apis/cert-manager.io/v1/namespaces/web/certificates",
+  "query": "limit=2"
+ },
+ "response": {
+  "status": 404,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "kind": "Status",
+   "apiVersion": "v1",
+   "status": "Failure",
+   "reason": "NotFound",
+   "code": 404
+  }
+ }
+}

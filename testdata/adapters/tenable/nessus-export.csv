@@ -1,0 +1,194 @@
+"Plugin ID","CVE","CVSS v2.0 Base Score","Risk","Host","Protocol","Port","Name","Synopsis","Description","Solution","See Also","Plugin Output"
+"10863","","","None","192.0.2.10","tcp","443","SSL Certificate Information","This plugin displays the SSL certificate.","","","","The following certificate was part of the certificate chain sent by
+the remote host for this service :
+
+Subject Name:
+
+Organization: Synthetic Test
+Common Name: www.example.test
+
+Issuer Name:
+
+Organization: Synthetic Test
+Common Name: Synthetic Test CA
+
+Serial Number: 2A 01
+
+Version: 3
+
+Signature Algorithm: SHA-256 With ECDSA Encryption
+
+Not Valid Before: Sep 01 00:00:00 2026 GMT
+Not Valid After: Nov 30 00:00:00 2026 GMT
+
+Public Key Info:
+
+Algorithm: EC Public Key
+Key Length: 256 bits
+
+Extension: Subject Alternative Name (2.5.29.17)
+Critical: 0
+DNS: www.example.test
+DNS: example.test
+
+Fingerprints :
+
+SHA-256 Fingerprint: 30 FF E0 F8 0C BC BF 38 EA 7F C7 13 51 99 F2 7F F7 68 5F 2C 5B EB 88 52 F7 7C 25 E9 3A 2E 2A 7B
+SHA-1 Fingerprint: 89 43 3B 4A C1 05 D4 2A 60 36 4A 3E C0 03 66 43 08 01 CF B8
+"
+"10863","","","None","192.0.2.11","tcp","8443","SSL Certificate Information","This plugin displays the SSL certificate.","","","","The following certificate was part of the certificate chain sent by
+the remote host for this service :
+
+Subject Name:
+
+Organization: Synthetic Test
+Common Name: legacy.example.test
+
+Issuer Name:
+
+Organization: Synthetic Test
+Common Name: legacy.example.test
+
+Serial Number: 2A 03
+
+Version: 3
+
+Signature Algorithm: SHA-256 With RSA Encryption
+
+Not Valid Before: Sep 01 00:00:00 2026 GMT
+Not Valid After: Sep 01 00:00:00 2027 GMT
+
+Public Key Info:
+
+Algorithm: RSA Encryption
+Key Length: 2048 bits
+
+Extension: Subject Alternative Name (2.5.29.17)
+Critical: 0
+DNS: legacy.example.test
+
+Fingerprints :
+
+SHA-256 Fingerprint: 71 07 B3 01 2F BD 21 32 AA DF F3 32 7C F0 C9 7C D2 E6 75 93 4F D7 72 E4 59 AB 4F 61 E4 63 D5 68
+SHA-1 Fingerprint: 94 0D 94 8A 0B 3A 43 38 BB B3 59 76 A6 04 EE 5C 6A 3E B1 39
+"
+"19506","","","None","192.0.2.10","tcp","0","Nessus Scan Information","This plugin displays the SSL certificate.","","","","Information about this scan :
+Nessus version : 10.x
+"
+"10863","","","None","192.0.2.13","tcp","0","SSL Certificate Information","This plugin displays the SSL certificate.","","","","The following certificate was part of the certificate chain sent by
+the remote host for this service :
+
+Subject Name:
+
+Organization: Synthetic Test
+Common Name: www.example.test
+
+Issuer Name:
+
+Organization: Synthetic Test
+Common Name: Synthetic Test CA
+
+Serial Number: 2A 01
+
+Version: 3
+
+Signature Algorithm: SHA-256 With ECDSA Encryption
+
+Not Valid Before: Sep 01 00:00:00 2026 GMT
+Not Valid After: Nov 30 00:00:00 2026 GMT
+
+Public Key Info:
+
+Algorithm: EC Public Key
+Key Length: 256 bits
+
+Extension: Subject Alternative Name (2.5.29.17)
+Critical: 0
+DNS: www.example.test
+DNS: example.test
+
+Fingerprints :
+
+SHA-256 Fingerprint: 30 FF E0 F8 0C BC BF 38 EA 7F C7 13 51 99 F2 7F F7 68 5F 2C 5B EB 88 52 F7 7C 25 E9 3A 2E 2A 7B
+SHA-1 Fingerprint: 89 43 3B 4A C1 05 D4 2A 60 36 4A 3E C0 03 66 43 08 01 CF B8
+"
+"10863","","","None","","tcp","443","SSL Certificate Information","This plugin displays the SSL certificate.","","","","The following certificate was part of the certificate chain sent by
+the remote host for this service :
+
+Subject Name:
+
+Organization: Synthetic Test
+Common Name: www.example.test
+
+Issuer Name:
+
+Organization: Synthetic Test
+Common Name: Synthetic Test CA
+
+Serial Number: 2A 01
+
+Version: 3
+
+Signature Algorithm: SHA-256 With ECDSA Encryption
+
+Not Valid Before: Sep 01 00:00:00 2026 GMT
+Not Valid After: Nov 30 00:00:00 2026 GMT
+
+Public Key Info:
+
+Algorithm: EC Public Key
+Key Length: 256 bits
+
+Extension: Subject Alternative Name (2.5.29.17)
+Critical: 0
+DNS: www.example.test
+DNS: example.test
+
+Fingerprints :
+
+SHA-256 Fingerprint: 30 FF E0 F8 0C BC BF 38 EA 7F C7 13 51 99 F2 7F F7 68 5F 2C 5B EB 88 52 F7 7C 25 E9 3A 2E 2A 7B
+SHA-1 Fingerprint: 89 43 3B 4A C1 05 D4 2A 60 36 4A 3E C0 03 66 43 08 01 CF B8
+"
+"10863","","","None","192.0.2.14","tcp","443","SSL Certificate Information","This plugin displays the SSL certificate.","","","","No certificate information was returned."
+"10863","","","None","192.0.2.15","tcp","443","SSL Certificate Information","This plugin displays the SSL certificate.","","","","Subject Name:
+
+Common Name: noid.example.test
+"
+"10863","192.0.2.16","443","short row"
+"10863","","","None","192.0.2.10","tcp","443","SSL Certificate Information","This plugin displays the SSL certificate.","","","","The following certificate was part of the certificate chain sent by
+the remote host for this service :
+
+Subject Name:
+
+Organization: Synthetic Test
+Common Name: www.example.test
+
+Issuer Name:
+
+Organization: Synthetic Test
+Common Name: Synthetic Test CA
+
+Serial Number: 2A 01
+
+Version: 3
+
+Signature Algorithm: SHA-256 With ECDSA Encryption
+
+Not Valid Before: Sep 01 00:00:00 2026 GMT
+Not Valid After: Nov 30 00:00:00 2026 GMT
+
+Public Key Info:
+
+Algorithm: EC Public Key
+Key Length: 256 bits
+
+Extension: Subject Alternative Name (2.5.29.17)
+Critical: 0
+DNS: www.example.test
+DNS: example.test
+
+Fingerprints :
+
+SHA-256 Fingerprint: 30 FF E0 F8 0C BC BF 38 EA 7F C7 13 51 99 F2 7F F7 68 5F 2C 5B EB 88 52 F7 7C 25 E9 3A 2E 2A 7B
+SHA-1 Fingerprint: 89 43 3B 4A C1 05 D4 2A 60 36 4A 3E C0 03 66 43 08 01 CF B8
+"
