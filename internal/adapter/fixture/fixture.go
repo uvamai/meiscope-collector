@@ -6,7 +6,10 @@
 //	 "response": {"status": 200, "headers": {"Content-Type": "application/json"}, "body": {...}}}
 //
 // Replay is deterministic: a request matches by method, path and query
-// (parameters in any order), and an unmatched request fails the call.
+// (parameters in any order), and an unmatched request fails the call. A
+// request may also name "body_contains": the exchange then matches only a
+// request whose body contains that text (several exchanges may share a
+// method, path and query when they differ by it, as POST queries do).
 package fixture
 
 import (
@@ -41,6 +44,8 @@ type Exchange struct {
 		Method string `json:"method"`
 		Path   string `json:"path"`
 		Query  string `json:"query"`
+		// BodyContains, when set, must occur in the request body.
+		BodyContains string `json:"body_contains,omitempty"`
 	} `json:"request"`
 	Response struct {
 		Status  int               `json:"status"`
@@ -51,7 +56,7 @@ type Exchange struct {
 
 // Transport is an http.RoundTripper serving recorded exchanges.
 type Transport struct {
-	byKey map[string]Exchange
+	byKey map[string][]Exchange
 
 	mu       sync.Mutex
 	requests []*http.Request
@@ -66,7 +71,7 @@ func Load(dir string) (*Transport, error) {
 	if len(files) == 0 {
 		return nil, fmt.Errorf("fixture: no exchanges in %s", dir)
 	}
-	t := &Transport{byKey: map[string]Exchange{}}
+	t := &Transport{byKey: map[string][]Exchange{}}
 	for _, f := range files {
 		b, err := os.ReadFile(filepath.Clean(f))
 		if err != nil {
@@ -83,10 +88,12 @@ func Load(dir string) (*Transport, error) {
 			return nil, fmt.Errorf("fixture %s: %w", f, err)
 		}
 		k := key(ex.Request.Method, ex.Request.Path, q)
-		if _, dup := t.byKey[k]; dup {
-			return nil, fmt.Errorf("fixture %s: duplicate exchange %s", f, k)
+		for _, prev := range t.byKey[k] {
+			if prev.Request.BodyContains == ex.Request.BodyContains {
+				return nil, fmt.Errorf("fixture %s: duplicate exchange %s", f, k)
+			}
 		}
-		t.byKey[k] = ex
+		t.byKey[k] = append(t.byKey[k], ex)
 	}
 	return t, nil
 }
@@ -110,10 +117,35 @@ func key(method, path string, q url.Values) string {
 
 // RoundTrip serves the recorded response of a matching exchange.
 func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
+	var body []byte
+	if r.Body != nil {
+		b, err := io.ReadAll(io.LimitReader(r.Body, 16<<20))
+		_ = r.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		body = b
+		r.Body = io.NopCloser(bytes.NewReader(b))
+	}
 	t.mu.Lock()
-	t.requests = append(t.requests, r.Clone(r.Context()))
+	c := r.Clone(r.Context())
+	if body != nil {
+		c.Body = io.NopCloser(bytes.NewReader(body))
+	}
+	t.requests = append(t.requests, c)
 	t.mu.Unlock()
-	ex, ok := t.byKey[key(r.Method, r.URL.Path, r.URL.Query())]
+	var ex Exchange
+	ok := false
+	// An exchange naming body text wins over one that does not.
+	for _, cand := range t.byKey[key(r.Method, r.URL.Path, r.URL.Query())] {
+		if cand.Request.BodyContains != "" && bytes.Contains(body, []byte(cand.Request.BodyContains)) {
+			ex, ok = cand, true
+			break
+		}
+		if cand.Request.BodyContains == "" && !ok {
+			ex, ok = cand, true
+		}
+	}
 	if !ok {
 		return nil, fmt.Errorf("fixture: no recorded exchange for %s %s", r.Method, r.URL.RequestURI())
 	}

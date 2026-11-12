@@ -149,7 +149,7 @@ func TestScrape(t *testing.T) {
 
 	// The identity by issuer and serial needs the proposal: the 0.9.0
 	// contract refuses it, the 0.10.0 proposal accepts it.
-	submitTo(t, submittest.Proposed010SpecPath(), res.Observations, true)
+	submitTo(t, submittest.CloudProposedSpecPath(), res.Observations, true)
 	submitTo(t, submittest.VendoredSpecPath(), res.Observations, false)
 
 	// Delta: the same scrape again is unchanged.

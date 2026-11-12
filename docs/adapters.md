@@ -106,17 +106,26 @@ shapes, owned domains, batching) to the fake core validating against the
 core's file (`MEISCOPE_CONTRACT`). `STRICT=1` also fails on any difference.
 Real-core ingestion is left to the Phase 0 integration step.
 
+## Azure, Entra ID and Defender
+
+`azure_key_vault`, `azure_app_service`, `azure_app_gateway`, `entra_id` and
+`defender_tvm` are described in [azure.md](azure.md). The first four emit
+`cloud_resource` targets, a PROPOSAL in
+`api/proposed/collector-0.10.0-proposed.yaml` (additive over 0.9.0), kept
+behind `MEISCOPE_FEATURE_CLOUD_RESOURCE_V1` (off by default); test them
+against `submittest.NewCloudProposedCore()`.
+
 ### Proposed contract 0.10.0 (WP1.3)
 
 The Kubernetes, x509-certificate-exporter, Qualys and Tenable adapters
 (docs/adapters-kubernetes.md, docs/adapters-scanners.md) need three
-additive changes, proposed in `api/proposed/collector-0.10.0-proposed.yaml`:
+additive changes, proposed in the same shared `api/proposed/collector-0.10.0-proposed.yaml`
+as the cloud additions:
 adapter evidence on `host_port_sni` targets (a scanner export), certificate
 identity by issuer and serial where the source has no SHA-1 (the exporter,
-Qualys), and the evidence objects `renewal_mode`, `kubernetes` and
-`scanner` plus `certificate.sha256` and `certificate.dns_names`. The
+Qualys), and the evidence objects `kubernetes` and `scanner` plus `certificate.sha256` and `certificate.dns_names`. The
 evidence objects are unknown properties that 0.9.0 accepts and ignores, so
-Kubernetes Secrets are sent under `MEISCOPE_FEATURE_LOCAL_STORE_V1` alone;
+Kubernetes Secrets (with `renewal_mode` from the shared proposal) are sent under `MEISCOPE_FEATURE_LOCAL_STORE_V1` alone;
 everything 0.9.0 would refuse stays behind
 `MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2`. No new target kind is proposed: a
 Kubernetes Secret is a `store` (`kubernetes/<cluster>/<namespace>/<secret>`).
@@ -126,6 +135,7 @@ Kubernetes Secret is a `store` (`kubernetes/<cluster>/<namespace>/<secret>`).
 | Adapter | Reads | Document |
 |---|---|---|
 | `osquery` | Fleet, an osquery log sink or osqueryi output | docs/osquery.md |
+| `azure_key_vault`, `azure_app_service`, `azure_app_gateway`, `entra_id`, `defender_tvm` | Azure, Entra ID and Defender APIs | docs/azure.md |
 | `kubernetes` | TLS Secrets, cert-manager Certificates, Ingress and Gateway TLS | docs/adapters-kubernetes.md |
 | `x509-certificate-exporter` | the exporter's Prometheus metrics endpoint | docs/adapters-scanners.md |
 | `qualys`, `tenable` | CSV exports given by path | docs/adapters-scanners.md |
@@ -146,6 +156,7 @@ buffer when `MEISCOPE_BUFFER_DIR` is set (recommended), else straight to the cor
 |---|---|
 | `MEISCOPE_CORE_URL` | https URL of the core |
 | `MEISCOPE_FEATURE_LOCAL_STORE_V1` | `true` enables store and file observations (proposed contract); default off |
+| `MEISCOPE_FEATURE_CLOUD_RESOURCE_V1` | `true` enables cloud_resource observations (proposed contract 0.10.0); default off |
 | `MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2` | `true` enables the observations of proposed contract 0.10.0 (scanner exports on `host_port_sni`, certificates identified by issuer and serial); default off |
 | `MEISCOPE_CREDENTIAL_FILE`, `MEISCOPE_CREDENTIAL_KEY_FILE` | the age-encrypted credential file and the collector's identity file |
 | `MEISCOPE_BUFFER_DIR` | directory of the local buffer |

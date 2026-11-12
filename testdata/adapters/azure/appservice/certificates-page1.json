@@ -1,0 +1,34 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/subscriptions/11111111-2222-3333-4444-555555555555/providers/Microsoft.Web/certificates",
+  "query": "api-version=2023-12-01&$skipToken=cGFnZTE"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "value": [
+    {
+     "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-web/providers/Microsoft.Web/certificates/api-from-keyvault",
+     "name": "api-from-keyvault",
+     "location": "australiaeast",
+     "properties": {
+      "thumbprint": "A1B2C3D4E5F60718293A4B5C6D7E8F9012345678",
+      "expirationDate": "2027-02-01T00:00:00+00:00",
+      "issueDate": "2026-02-01T00:00:00+00:00",
+      "issuer": "CN=Meiscope Synthetic Test CA",
+      "subjectName": "CN=api.contoso.example.test",
+      "hostNames": [
+       "api.contoso.example.test"
+      ],
+      "keyVaultId": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-sec/providers/Microsoft.KeyVault/vaults/kv-contoso-prod",
+      "keyVaultSecretName": "api-tls"
+     }
+    }
+   ]
+  }
+ }
+}

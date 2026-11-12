@@ -15,3 +15,12 @@ regexes = [
   '''^\s*for name, creds := range map\[string\]staticCreds\{"missing": \{\}, "short": \{"buffer_key": "c2VjcmV0LXNob3J0LXZhbHVl"\}, "not base64": \{"buffer_key": "!!secret-key-material!!"\}\} \{$''',
   '''^\s*for _, leak := range \[\]string\{"secret-key-material", "c2VjcmV0LXNob3J0LXZhbHVl", "secret-short-value"\} \{$''',
 ]
+
+[[allowlists]]
+description = "Synthetic Azure and Graph paging tokens (base64 of 'skiptoken-page1', 'skip-page-1', 'delta-token-1', 'delta-token-2') in hand-made adapter fixtures"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^testdata/adapters/azure/(keyvault|entra)/[a-z0-9-]+\.json$''']
+regexes = [
+  '''^\s*"(query|nextLink|@odata\.nextLink|@odata\.deltaLink)": "[^"]*\$(skiptoken|deltatoken)=(c2tpcHRva2VuLXBhZ2Ux|c2tpcC1wYWdlLTE|ZGVsdGEtdG9rZW4tMQ|ZGVsdGEtdG9rZW4tMg)",?$''',
+]

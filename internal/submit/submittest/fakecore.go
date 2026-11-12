@@ -38,14 +38,6 @@ func ProposedSpecPath() string {
 	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "proposed", "collector-0.5.0-proposed.yaml")
 }
 
-// Proposed010SpecPath returns the path of the proposed contract 0.10.0
-// (adapter evidence on host_port_sni targets, issuer-and-serial identity),
-// which the core has not adopted (api/proposed).
-func Proposed010SpecPath() string {
-	_, file, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "proposed", "collector-0.10.0-proposed.yaml")
-}
-
 // Core is a fake core. Each observations request must be gzip JSON that
 // validates as an ObservationBatch; an invalid request gets 400 and is
 // recorded in Errors. Observations that break a rule the contract states in
@@ -54,6 +46,9 @@ func Proposed010SpecPath() string {
 type Core struct {
 	*httptest.Server
 	spec *Spec
+	// endpointAdapter allows adapter evidence on host_port_sni targets
+	// (scanner exports), which only the proposed contract 0.10.0 does.
+	endpointAdapter bool
 
 	mu       sync.Mutex
 	batches  []json.RawMessage
@@ -74,6 +69,16 @@ type Rejection struct {
 // NewCore starts a fake core validating against the vendored spec.
 func NewCore() (*Core, error) { return NewCoreWithSpec(SpecPath()) }
 
+// CloudProposedSpecPath returns the path of the proposed contract 0.10.0
+// (cloud_resource targets), which the core has not adopted (api/proposed).
+func CloudProposedSpecPath() string {
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "proposed", "collector-0.10.0-proposed.yaml")
+}
+
+// NewCloudProposedCore starts a fake core for the proposed contract 0.10.0.
+func NewCloudProposedCore() (*Core, error) { return NewCoreWithSpec(CloudProposedSpecPath()) }
+
 // NewProposedCore starts a fake core for the proposed contract 0.5.0.
 func NewProposedCore() (*Core, error) { return NewCoreWithSpec(ProposedSpecPath()) }
 
@@ -84,7 +89,7 @@ func NewCoreWithSpec(path string) (*Core, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Core{spec: spec}
+	c := &Core{spec: spec, endpointAdapter: filepath.Clean(path) == filepath.Clean(CloudProposedSpecPath())}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /collector/v1/observations", c.handle)
 	mux.HandleFunc("GET /collector/v1/owned-domains", c.handleDomains)
@@ -193,7 +198,7 @@ func (c *Core) handle(w http.ResponseWriter, r *http.Request) {
 	rejected := []Rejection{}
 	c.mu.Lock()
 	for i, o := range batch.Observations {
-		if code, msg := rejection(o); code != "" {
+		if code, msg := rejection(o, c.endpointAdapter); code != "" {
 			rejected = append(rejected, Rejection{Index: i, Code: code, Message: msg})
 		} else if len(c.codes) > 0 {
 			rejected = append(rejected, Rejection{Index: i, Code: c.codes[0], Message: "rejected by the test"})
@@ -214,6 +219,9 @@ type observation struct {
 		Port  int    `json:"port"`
 		Store string `json:"store"`
 		Path  string `json:"path"`
+		// Provider and ResourceID belong to cloud_resource (0.10.0 proposal).
+		Provider   string `json:"provider"`
+		ResourceID string `json:"resource_id"`
 	} `json:"target"`
 	Method      string   `json:"method"`
 	Outcome     string   `json:"outcome"`
@@ -230,7 +238,9 @@ type observation struct {
 // rejection applies the rules collector.yaml states in its descriptions
 // (the JSON Schema cannot express them) and returns the core's rejection
 // code, or "" when the observation is acceptable.
-func rejection(o observation) (code, msg string) {
+func rejection(o observation, endpointAdapter bool) (code, msg string) {
+	adapterKinds := o.Target.Kind == "store" || o.Target.Kind == "file" || o.Target.Kind == "cloud_resource" ||
+		(endpointAdapter && o.Target.Kind == "host_port_sni")
 	switch {
 	case (o.Target.Kind == "host_port_sni" || o.Target.Kind == "ct_log") && o.Target.Port == 0:
 		return "invalid_target", "port is required for host_port_sni and ct_log"
@@ -254,10 +264,22 @@ func rejection(o observation) (code, msg string) {
 		return "invalid_target", "a store target needs store (0.9.0)"
 	case o.Target.Kind == "file" && o.Target.Path == "":
 		return "invalid_target", "a file target needs path (0.9.0)"
+	case o.Target.Kind == "cloud_resource" && o.Method != "adapter":
+		return "invalid_target", "cloud_resource targets are read by method adapter only (0.10.0 proposal)"
+	case o.Target.Kind == "cloud_resource" && (o.Target.Port != 0 || o.Target.SNI != ""):
+		return "invalid_target", "cloud_resource targets have no port or sni (0.10.0 proposal)"
+	case o.Target.Kind == "cloud_resource" && (o.Target.Provider == "" || o.Target.ResourceID == ""):
+		return "invalid_target", "a cloud_resource target needs provider and resource_id (0.10.0 proposal)"
+	case o.Target.Kind != "cloud_resource" && (o.Target.Provider != "" || o.Target.ResourceID != ""):
+		return "invalid_target", "provider and resource_id belong to cloud_resource targets only (0.10.0 proposal)"
 	case o.Adapter != nil && o.Method != "adapter":
 		return "invalid_target", "adapter evidence is allowed with method adapter only (0.9.0)"
 	case o.Method == "adapter" && o.Adapter == nil:
 		return "invalid_target", "method adapter requires adapter evidence (0.9.0)"
+	case o.Adapter != nil && !adapterKinds:
+		return "invalid_target", "adapter evidence is allowed only with a store, file or cloud_resource target, and host_port_sni under the 0.10.0 proposal (0.9.0, 0.10.0 proposal)"
+	case o.Target.Kind == "host_port_sni" && o.Adapter != nil && (o.Adapter.Certificate == nil || o.Outcome != "cert_seen" || len(o.ServedChain) > 0):
+		return "invalid_target", "a host_port_sni target read by method adapter carries adapter.certificate, outcome cert_seen and no served_chain (0.10.0 proposal)"
 	case o.Target.Kind == "store" && o.Adapter.Certificate == nil:
 		return "invalid_target", "a store target needs adapter.certificate (0.9.0)"
 	case o.Target.Kind == "file" && o.Adapter.File == nil:

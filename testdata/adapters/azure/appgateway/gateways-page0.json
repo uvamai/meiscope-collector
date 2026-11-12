@@ -1,0 +1,101 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/subscriptions/11111111-2222-3333-4444-555555555555/providers/Microsoft.Network/applicationGateways",
+  "query": "api-version=2024-05-01"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "value": [
+    {
+     "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop",
+     "name": "agw-shop",
+     "location": "australiasoutheast",
+     "properties": {
+      "sslCertificates": [
+       {
+        "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop/sslCertificates/shop-tls",
+        "name": "shop-tls",
+        "properties": {
+         "publicCertData": "MIIFwAYJKoZIhvcNAQcCoIIFsTCCBa0CAQExADALBgkqhkiG9w0BBwGgggWVMIICYjCCAUqgAwIBAgICEAMwDQYJKoZIhvcNAQELBQAwJTEjMCEGA1UEAwwaTWVpc2NvcGUgU3ludGhldGljIFRlc3QgQ0EwHhcNMjYxMTEyMTQwNDM4WhcNMjcwMjEwMTQwNDM4WjAkMSIwIAYDVQQDDBlzaG9wLmNvbnRvc28uZXhhbXBsZS50ZXN0MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEY/zYJQvXeOenRRIEC4++s6MDOfWFhQsHraUBOPw1qQufZBx8Itog9GH3xjgDj+ysYyx/uxzQhBzTGhcZmC6zgaNoMGYwJAYDVR0RBB0wG4IZc2hvcC5jb250b3NvLmV4YW1wbGUudGVzdDAdBgNVHQ4EFgQU/NcWGpVUqL2E5u26GdIjZDIuK+UwHwYDVR0jBBgwFoAUiokIW+fswYfTj3ArsDwaSj7HAkowDQYJKoZIhvcNAQELBQADggEBABj9Cc63c+0SKSL0gQ0yGbYokp7n/I+oUZ+O/y3fdIJ15u7+sOFpLLtGGYczPHmjS3Z7abuh1EgVFLneXUvDHnkLOsFeLCoWx0+6epHej9j4a8xmpONGpj+WmepWCnLuTeSCWzEuGikOn9B09yhp32F7+sfjuv1TJHgp3fwPoWvJDrZIx/o0vwMbx6ytOn3X5uL8OYXNqKUS/6CCXwoug11xOjGxOgVlt++TSDcR0XCbeM37TGk/xO8PT0EfXZBpyC07s+m9xaLkUkSdwxmIO2CWiCiUAQE6vsXkEWuLXKPA98hzYJKSlIiAFbM2bKBPW03nfIjFXVO7MfqTyANN63swggMrMIICE6ADAgECAhQU5ddMq4eZGJeRMPR5TYO0DPLyLTANBgkqhkiG9w0BAQsFADAlMSMwIQYDVQQDDBpNZWlzY29wZSBTeW50aGV0aWMgVGVzdCBDQTAeFw0yNjExMTIxNDA0MzhaFw0zNjExMDkxNDA0MzhaMCUxIzAhBgNVBAMMGk1laXNjb3BlIFN5bnRoZXRpYyBUZXN0IENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4oeEezUE+LZeZn13cGuwwC1JvjoC55x5C2kd2c4XWOKNRpv1C69QK7oswmBwU4tRXEIa6jPY+fPCSComAvmboF7W0TRIeDlBBhu2MOW37h/3weGWvHllT4ny8SmZwfOB36ZBXEowbKNJgqmCjpDDjUYtZgdKfa48qL27eHd4BrfqG2fXxSyKc1RA40Rjj4TyiOq8MBkz4AYldDN3TsKsFpYps5LUL1zJF5FPpihD0hl0m/LVEQV2HGLkiAZU15HYbfXUeYc+1yxjurxINBDq25sStfN6+folHyrQdJU2qdbNP5Ieelj3VcyW5aeAuNWv+Rvm0+aWwBC0keMdkfq3JwIDAQABo1MwUTAdBgNVHQ4EFgQUiokIW+fswYfTj3ArsDwaSj7HAkowHwYDVR0jBBgwFoAUiokIW+fswYfTj3ArsDwaSj7HAkowDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAhMzzYfhB8bnfimlMH5MEgLyNY/Dq05eDoEPQ+rYTXsDOIS9BFuhXzWond6YUlgeUHo2nXKdH2PfESsS/AJ/sXX5M4f0apv2K0pTutBmsOh1KQ4vUxvhq7Z9oszUk/z385/dLSWSeMTJ6uqUewOyRh/GDDeLfynlARaTFMqPCUQpENSSx3+koKguOf0oxzo47Hq0bamrD1bDnzIapp5zLYC3mkyZE02fjgZUdKPxWI3w4D1p3C9Mf2+0ucinB+RUg3a4IVoAIFUVCCuxc97SwofpIiDSitZryrYj7e6ki1rEo/A0JhYEsMDJJQs7ET3ciEersqdmeKwft8a/V/1u0YzEA",
+         "provisioningState": "Succeeded"
+        }
+       },
+       {
+        "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop/sslCertificates/kv-linked",
+        "name": "kv-linked",
+        "properties": {
+         "keyVaultSecretId": "https://kv-contoso-prod.vault.azure.net/secrets/shop-tls",
+         "provisioningState": "Succeeded"
+        }
+       }
+      ],
+      "frontendPorts": [
+       {
+        "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop/frontendPorts/port_443",
+        "name": "port_443",
+        "properties": {
+         "port": 443
+        }
+       },
+       {
+        "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop/frontendPorts/port_8443",
+        "name": "port_8443",
+        "properties": {
+         "port": 8443
+        }
+       }
+      ],
+      "httpListeners": [
+       {
+        "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop/httpListeners/shop-https",
+        "name": "shop-https",
+        "properties": {
+         "protocol": "Https",
+         "hostNames": [
+          "shop.contoso.example.test",
+          "www.shop.contoso.example.test"
+         ],
+         "frontendPort": {
+          "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop/frontendPorts/port_443"
+         },
+         "sslCertificate": {
+          "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop/sslCertificates/shop-tls"
+         }
+        }
+       },
+       {
+        "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop/httpListeners/basic-8443",
+        "name": "basic-8443",
+        "properties": {
+         "protocol": "Https",
+         "frontendPort": {
+          "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop/frontendPorts/port_8443"
+         },
+         "sslCertificate": {
+          "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop/sslCertificates/shop-tls"
+         }
+        }
+       },
+       {
+        "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop/httpListeners/plain-http",
+        "name": "plain-http",
+        "properties": {
+         "protocol": "Http",
+         "hostName": "shop.contoso.example.test",
+         "frontendPort": {
+          "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-edge/providers/Microsoft.Network/applicationGateways/agw-shop/frontendPorts/port_443"
+         }
+        }
+       }
+      ]
+     }
+    }
+   ]
+  }
+ }
+}

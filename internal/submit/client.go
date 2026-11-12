@@ -1,7 +1,7 @@
 // Package submit is the collector's client of the core's collector API
 // (ADR-0005): POST /collector/v1/observations with gzip-compressed JSON
-// batches of at most 1000 observations, and GET /collector/v1/owned-domains,
-// both retried with back-off.
+// batches of at most 1000 observations, GET /collector/v1/owned-domains and
+// GET /collector/v1/scopes, all retried with back-off.
 package submit
 
 import (
@@ -21,12 +21,14 @@ import (
 
 	"github.com/uvamai/meiscope-collector/internal/clock"
 	"github.com/uvamai/meiscope-collector/internal/retry"
+	"github.com/uvamai/meiscope-collector/internal/scope"
 )
 
 // Endpoints below the core base URL.
 const (
 	ObservationsPath  = "/collector/v1/observations"
 	OwnedDomainsPath  = "/collector/v1/owned-domains"
+	ScopesPath        = "/collector/v1/scopes"
 	maxResponseBytes  = 16 << 20
 	maxDiscardedBytes = 1 << 20
 )
@@ -217,6 +219,22 @@ func (c *Client) OwnedDomains(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("owned domains: %w", err)
 	}
 	return out.Domains, nil
+}
+
+// Scopes returns the signed scan scopes the core lists (GET
+// /collector/v1/scopes, schema ScopeList), as received: nothing in them is
+// trusted until each is verified with the pinned keys (scope.VerifyKeyring).
+func (c *Client) Scopes(ctx context.Context) ([]scope.Signed, error) {
+	var out struct {
+		Scopes []scope.Signed `json:"scopes"`
+	}
+	if err := c.do(ctx, http.MethodGet, ScopesPath, nil, http.StatusOK, &out); err != nil {
+		return nil, fmt.Errorf("scopes: %w", err)
+	}
+	if out.Scopes == nil {
+		return nil, errors.New("scopes: the answer has no scopes list")
+	}
+	return out.Scopes, nil
 }
 
 // do sends one request, retrying network errors, 429 and 5xx with back-off,

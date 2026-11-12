@@ -141,7 +141,7 @@ func TestTenable(t *testing.T) {
 	if !strings.Contains(logs.String(), scanexport.StatMalformedRow) {
 		t.Error("skipped rows are not logged")
 	}
-	if err := submitTo(t, submittest.Proposed010SpecPath(), res.Observations); err != nil {
+	if err := submitTo(t, submittest.CloudProposedSpecPath(), res.Observations); err != nil {
 		t.Fatal(err)
 	}
 
@@ -186,7 +186,7 @@ func TestQualys(t *testing.T) {
 		t.Errorf("api %+v %+v", api.Target, api.Adapter.Certificate)
 	}
 	// Identity by issuer and serial: the proposal accepts it, 0.9.0 does not.
-	if err := submitTo(t, submittest.Proposed010SpecPath(), res.Observations); err != nil {
+	if err := submitTo(t, submittest.CloudProposedSpecPath(), res.Observations); err != nil {
 		t.Fatal(err)
 	}
 	if err := submitTo(t, submittest.VendoredSpecPath(), res.Observations); err == nil {

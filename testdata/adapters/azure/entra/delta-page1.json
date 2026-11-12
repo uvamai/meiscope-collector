@@ -1,0 +1,40 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/v1.0/applications/delta",
+  "query": "$skiptoken=c2tpcC1wYWdlLTE"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "@odata.deltaLink": "https://graph.microsoft.com/v1.0/applications/delta?$deltatoken=ZGVsdGEtdG9rZW4tMQ",
+   "value": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000002",
+     "appId": "bbbbbbbb-0000-4000-8000-000000000002",
+     "displayName": "Legacy SAML app (synthetic)",
+     "keyCredentials": [
+      {
+       "customKeyIdentifier": "U2hvcnRJZA==",
+       "endDateTime": "2027-03-01T00:00:00Z",
+       "keyId": "cccccccc-0000-4000-8000-000000000002",
+       "startDateTime": "2026-03-01T00:00:00Z",
+       "type": "AsymmetricX509Cert",
+       "usage": "Verify"
+      }
+     ],
+     "passwordCredentials": []
+    },
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000003",
+     "@removed": {
+      "reason": "changed"
+     }
+    }
+   ]
+  }
+ }
+}

@@ -9,7 +9,8 @@ import (
 	"github.com/uvamai/meiscope-collector/internal/submit/submittest"
 )
 
-// Tests of the PROPOSED contract 0.10.0 additions (WP1.3): adapter evidence
+// Tests of the PROPOSED contract 0.10.0 additions of WP1.3 (the shared
+// proposal also carries the WP1.2 cloud additions, cloud_proposed_test.go): adapter evidence
 // on host_port_sni targets, certificates identified by issuer and serial,
 // and the kubernetes and scanner evidence objects.
 
@@ -28,7 +29,7 @@ func endpointObservation() submit.Observation {
 }
 
 func TestProposed010Schema(t *testing.T) {
-	spec, err := submittest.LoadSpec(submittest.Proposed010SpecPath())
+	spec, err := submittest.LoadSpec(submittest.CloudProposedSpecPath())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +73,7 @@ func TestProposed010Schema(t *testing.T) {
 	}
 	for name, doc := range map[string]string{
 		"renewal mode": strings.Replace(k8s, `"external_automated"`, `"guessed"`, 1),
+		"sha1 short":   strings.Replace(k8s, strings.Repeat("ab", 20), "abcd", 1),
 		"no cluster":   strings.Replace(k8s, `"cluster":"prod",`, ``, 1),
 	} {
 		if err := spec.Validate("ObservationBatch", []byte(doc)); err == nil {
@@ -81,7 +83,7 @@ func TestProposed010Schema(t *testing.T) {
 }
 
 func TestProposed010Core(t *testing.T) {
-	core, err := submittest.NewCoreWithSpec(submittest.Proposed010SpecPath())
+	core, err := submittest.NewCoreWithSpec(submittest.CloudProposedSpecPath())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,19 +93,32 @@ func TestProposed010Core(t *testing.T) {
 	if err != nil || res.Accepted != 2 || len(res.Rejected) != 0 {
 		t.Fatalf("%+v %v %v", res, err, core.Errors())
 	}
+	// The 0.9.0 core refuses adapter evidence on a host_port_sni target.
+	vendored, err := submittest.NewCoreWithSpec(submittest.VendoredSpecPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vendored.Close()
+	o := endpointObservation()
+	o.Adapter.Certificate.SHA1 = strings.Repeat("ab", 20)
+	vcl, _ := submit.New(vendored.URL, vendored.Client())
+	vres, err := vcl.Submit(context.Background(), []submit.Observation{o})
+	if err != nil || len(vres.Rejected) != 1 || vres.Rejected[0].Code != "invalid_target" {
+		t.Fatalf("0.9.0 core: %+v %v %v", vres, err, vendored.Errors())
+	}
 }
 
 // TestProposed010FieldsAreReviewed fixes the fields the 0.10.0 proposal adds.
 func TestProposed010FieldsAreReviewed(t *testing.T) {
-	props, strict := schemaProps(t, submittest.Proposed010SpecPath())
+	props, strict := schemaProps(t, submittest.CloudProposedSpecPath())
 	want := map[string]string{
-		"AdapterEvidence":        "certificate,custody,file,findings,kubernetes,renewal_mode,scanner,source",
+		"AdapterEvidence":        "bindings,certificate,custody,file,findings,kubernetes,renewal_mode,scanner,source",
 		"CertificateMetadata":    "authority_key_id,ca,common_name,dns_names,issuer,key_algorithm,key_strength,not_after,not_before,self_signed,serial,sha1,sha256,signing_algorithm,subject,subject_key_id",
 		"KubernetesEvidence":     "cert_manager,chain_length,cluster,hostnames,name,namespace,references",
 		"KubernetesRef":          "kind,name,namespace",
 		"CertManagerCertificate": "dns_names,issuer_group,issuer_kind,issuer_name,name,not_after,ready,renewal_time,revision",
 		"ScannerEvidence":        "check,dns_name,file",
-		"Target":                 "host,kind,path,port,sni,store",
+		"Target":                 "host,kind,path,port,provider,region,resource_id,resource_type,sni,store",
 	}
 	for name, fields := range want {
 		if got := strings.Join(props[name], ","); got != fields {

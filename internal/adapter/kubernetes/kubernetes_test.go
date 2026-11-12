@@ -231,7 +231,7 @@ func TestReplayCluster(t *testing.T) {
 	// The current contract (0.9.0) accepts them, the unknown evidence fields
 	// ignored; so does the 0.10.0 proposal that defines those fields.
 	submitTo(t, submittest.VendoredSpecPath(), res.Observations)
-	submitTo(t, submittest.Proposed010SpecPath(), res.Observations)
+	submitTo(t, submittest.CloudProposedSpecPath(), res.Observations)
 }
 
 func assertNoLeak(t *testing.T, res adapter.Result, logs []byte) {

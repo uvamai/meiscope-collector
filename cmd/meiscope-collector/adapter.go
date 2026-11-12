@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/adapter"
+	_ "github.com/uvamai/meiscope-collector/internal/adapter/azure"        // registers the Azure, Entra ID and Defender adapters
 	_ "github.com/uvamai/meiscope-collector/internal/adapter/kubernetes"   // registers the kubernetes adapter
 	"github.com/uvamai/meiscope-collector/internal/adapter/osquery"        // registers the osquery adapter
 	_ "github.com/uvamai/meiscope-collector/internal/adapter/scanexport"   // registers the qualys and tenable adapters

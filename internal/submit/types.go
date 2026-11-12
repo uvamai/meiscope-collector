@@ -42,6 +42,10 @@ const (
 	// KindFile is a keystore or certificate file on a host, read by an
 	// adapter (PROPOSED in contract 0.5.0).
 	KindFile = "file"
+	// KindCloudResource is a certificate or credential held by a cloud
+	// platform resource (PROPOSED in contract 0.10.0, not adopted by the
+	// core; sent only with MEISCOPE_FEATURE_CLOUD_RESOURCE_V1).
+	KindCloudResource = "cloud_resource"
 )
 
 // MaxBatch is the largest batch the core accepts (ObservationBatch.maxItems).
@@ -83,6 +87,12 @@ type Target struct {
 	Store string `json:"store,omitempty"`
 	// Path is the file path of a file target (PROPOSED 0.5.0).
 	Path string `json:"path,omitempty"`
+	// Provider, ResourceID, ResourceType and Region locate a cloud_resource
+	// target (PROPOSED 0.10.0).
+	Provider     string `json:"provider,omitempty"`
+	ResourceID   string `json:"resource_id,omitempty"`
+	ResourceType string `json:"resource_type,omitempty"`
+	Region       string `json:"region,omitempty"`
 }
 
 // TLSParams are negotiated connection parameters (probe observations).
@@ -175,23 +185,31 @@ type AdapterEvidence struct {
 	File        *FileDigest          `json:"file,omitempty"`
 	Custody     *Custody             `json:"custody,omitempty"`
 	Findings    []Finding            `json:"findings,omitempty"`
-
-	// The fields below are PROPOSED in contract 0.10.0 (api/proposed). The
-	// 0.9.0 core accepts and ignores unknown AdapterEvidence properties.
-
-	// RenewalMode is a hint the source proves, for example
-	// external_automated for a certificate cert-manager renews.
-	RenewalMode string `json:"renewal_mode,omitempty"`
-	// Kubernetes is what the kubernetes adapter read about the Secret.
+	// RenewalMode and Bindings are PROPOSED in contract 0.10.0.
+	RenewalMode string    `json:"renewal_mode,omitempty"`
+	Bindings    []Binding `json:"bindings,omitempty"`
+	// Kubernetes is what the kubernetes adapter read about the Secret
+	// (PROPOSED 0.10.0).
 	Kubernetes *KubernetesEvidence `json:"kubernetes,omitempty"`
-	// Scanner is what a scanner export said about the endpoint.
+	// Scanner is what a scanner export said about the endpoint (PROPOSED
+	// 0.10.0).
 	Scanner *ScannerEvidence `json:"scanner,omitempty"`
 }
 
-// Renewal modes (PROPOSED 0.10.0).
+// Renewal modes of AdapterEvidence.renewal_mode (PROPOSED 0.10.0).
 const (
 	RenewalExternalAutomated = "external_automated"
+	RenewalManual            = "manual"
+	RenewalUnknown           = "unknown"
 )
+
+// Binding is one place a cloud certificate is bound (schema Binding,
+// PROPOSED 0.10.0), read from configuration, never probed.
+type Binding struct {
+	Hostname   string `json:"hostname"`
+	Port       int    `json:"port,omitempty"`
+	ResourceID string `json:"resource_id,omitempty"`
+}
 
 // KubernetesEvidence describes a Kubernetes TLS Secret (PROPOSED 0.10.0).
 // It never carries the Secret's data, only whether tls.key is present
@@ -249,12 +267,23 @@ const (
 	// .kdb) whose content the collector does not parse. It may or may not be
 	// password-protected, and the collector never guesses passwords.
 	FindingKeystoreNotParsed = "keystore_not_parsed"
+	// FindingSecretCredentialExpiry reports the expiry of a non-certificate
+	// credential (an Entra password credential): never its value or hint
+	// (PROPOSED 0.10.0).
+	FindingSecretCredentialExpiry = "secret_credential_expiry"
+	// FindingSecretNotRead marks a secret that may hold a certificate but
+	// was not read or not opened (PROPOSED 0.10.0).
+	FindingSecretNotRead = "secret_not_read"
 )
 
 // Finding is something an adapter could not do and reports instead of
 // skipping it silently (schema Finding, PROPOSED 0.5.0).
 type Finding struct {
 	Code string `json:"code"`
+	// NotAfter and CredentialID belong to secret_credential_expiry
+	// (PROPOSED 0.10.0).
+	NotAfter     *time.Time `json:"not_after,omitempty"`
+	CredentialID string     `json:"credential_id,omitempty"`
 }
 
 // Store types of FileDigest.store_type (PROPOSED 0.5.0).
@@ -304,4 +333,7 @@ type FileDigest struct {
 // Custody holds custody flags (schema Custody, PROPOSED 0.5.0).
 type Custody struct {
 	KeyCustody string `json:"key_custody"`
+	// KeyExportable is whether the platform lets the key be exported
+	// (PROPOSED 0.10.0); never the key.
+	KeyExportable *bool `json:"key_exportable,omitempty"`
 }

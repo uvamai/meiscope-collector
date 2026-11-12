@@ -3,23 +3,42 @@ info:
   title: Meiscope collector API
   version: 0.10.0-proposed
   description: |
-    PROPOSAL (collector WP1.3, NOT adopted by the core): this file is the
-    core's contract 0.9.0 plus additive changes for the Kubernetes,
-    x509-certificate-exporter, Qualys and Tenable adapters. api/collector.yaml
-    stays byte-identical to the core's file. The additions are:
-    (1) a host_port_sni target may be read by method adapter with adapter
-    evidence (a scanner export reports what a scanner saw on an endpoint);
-    (2) CertificateMetadata.sha1 becomes optional when issuer and serial are
-    both present (sources that report no fingerprint), and gains sha256 and
-    dns_names; (3) AdapterEvidence gains renewal_mode, kubernetes and
-    scanner. No new target kind, rejection code or enum value of an existing
-    field. The collector sends (1) and (2) only when
-    MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2 is on (default off); (3) are unknown
-    properties a 0.9.0 core accepts and ignores, so they are sent with the
-    observations that 0.9.0 already allows.
     Collector surface of the Meiscope core (ADR-0005: REST over mTLS,
     additive-only within /v1). The public collector repository vendors a copy
     of this file.
+
+    PROPOSAL (collector WP1.2, NOT adopted by the core): this file is the
+    core's 0.9.0 contract plus additive changes for adapters that read cloud
+    platforms (Azure Key Vault, App Gateway, App Service, Entra ID; designed
+    to serve AWS, Cloudflare and others too). api/collector.yaml stays
+    byte-identical to the core's file; the core adopts or rejects this
+    proposal in its own repository. The additions are:
+    target kind cloud_resource with target fields provider, resource_id,
+    resource_type and region; AdapterEvidence properties renewal_mode and
+    bindings (Binding); Custody property key_exportable; Finding codes
+    secret_credential_expiry and secret_not_read with Finding properties
+    not_after and credential_id. No new rejection code.
+    Only public certificate data and metadata are carried: never private key
+    material, secret values, password hints or tokens (NFR-SEC-002).
+
+    Compatibility: additive within /v1. The core's 0.9.0 ingest rejects the
+    unknown kind and fields (Target has additionalProperties false), so the
+    core must adopt this version BEFORE a collector sends any of it. The
+    collector keeps all of it behind MEISCOPE_FEATURE_CLOUD_RESOURCE_V1 (off
+    by default).
+
+    Further additions (collector WP1.3: Kubernetes, x509-certificate-exporter,
+    Qualys and Tenable adapters), equally additive over 0.9.0:
+    (1) a host_port_sni target may be read by method adapter with adapter
+    evidence carrying certificate (a scanner export reports what a scanner saw
+    on an endpoint); (2) CertificateMetadata.sha1 becomes optional when issuer
+    and serial are both present (sources that report no fingerprint), and
+    gains sha256 and dns_names; (3) AdapterEvidence gains kubernetes
+    (KubernetesEvidence, KubernetesRef, CertManagerCertificate) and scanner
+    (ScannerEvidence). The collector sends (1) and (2) only with
+    MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2 (off by default); the objects of (3)
+    are unknown AdapterEvidence properties that a 0.9.0 core accepts and
+    ignores.
     Every request is authenticated by the collector's mTLS client certificate,
     which identifies its tenant and collector record; no request body names a
     tenant. The one exception is POST /enrol, which a collector calls before
@@ -393,7 +412,7 @@ components:
         0.9.0 (local store, O-07). What an adapter read from a system the
         customer already runs, stored as adapter evidence. Required with, and
         allowed only with, method adapter and a store, file or (0.10.0)
-        host_port_sni target. Unknown
+        cloud_resource or host_port_sni target. Unknown
         properties of this object and of the objects below it are accepted
         and ignored, so the collector can add fields; known properties are
         validated. When the source reports certificate metadata but not the
@@ -422,11 +441,24 @@ components:
             $ref: "#/components/schemas/Finding"
         renewal_mode:
           type: string
-          enum: [external_automated]
+          enum: [external_automated, manual, unknown]
           description: |
-            0.10.0. A renewal hint the source proves; external_automated: an
-            external system renews the certificate (for example cert-manager
-            owns the Kubernetes Secret). Absent when the source proves nothing.
+            0.10.0. How the certificate is renewed, only as far as the source
+            proves it: external_automated when the platform renews it itself
+            (a Key Vault certificate with an integrated issuer and an
+            AutoRenew lifetime action, an App Service managed certificate,
+            an ACM-issued certificate); manual when the source shows it is an
+            uploaded or imported certificate nothing renews; else unknown.
+        bindings:
+          type: array
+          maxItems: 256
+          description: |
+            0.10.0. Where the platform serves or uses the certificate, as the
+            source reports it (for example App Service host-name bindings and
+            App Gateway HTTPS listeners). Read from configuration, never
+            probed.
+          items:
+            $ref: "#/components/schemas/Binding"
         kubernetes:
           $ref: "#/components/schemas/KubernetesEvidence"
         scanner:
@@ -541,6 +573,27 @@ components:
           type: string
           maxLength: 255
           description: Base name of the export file the row came from.
+    Binding:
+      type: object
+      additionalProperties: true
+      description: 0.10.0. One place a cloud certificate is bound. Unknown properties are ignored.
+      required: [hostname]
+      properties:
+        hostname:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: Host name the binding serves (may be a wildcard such as "*.example.com").
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: Port of the binding when the source states it.
+        resource_id:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Provider identifier of the resource that holds the binding (an Azure resource ID of a site or listener, an ARN).
     CertificateMetadata:
       type: object
       additionalProperties: true
@@ -646,6 +699,9 @@ components:
           type: string
           enum: [present, absent, unknown]
           description: Whether the store holds a key pair for the certificate. Never the key itself.
+        key_exportable:
+          type: boolean
+          description: 0.10.0. Whether the platform allows the key to be exported, when the source states it (Key Vault key_props.exportable). Never the key itself.
     Finding:
       type: object
       additionalProperties: true
@@ -656,7 +712,7 @@ components:
       properties:
         code:
           type: string
-          enum: [keystore_not_parsed]
+          enum: [keystore_not_parsed, secret_credential_expiry, secret_not_read]
           description: |
             keystore_not_parsed: the file is a keystore container (.p12, .pfx,
             .jks or .kdb) whose content the collector does not parse. It may
@@ -664,6 +720,23 @@ components:
             and never guesses, defaults or brute-forces passwords. The finding
             carries the file path (target.path) and size (adapter.file.size)
             only.
+            0.10.0: secret_credential_expiry: a non-certificate credential
+            (an Entra ID application password credential, an API key) whose
+            expiry the source reports; the finding carries not_after and
+            credential_id only, never the value or its hint.
+            secret_not_read: a secret that may hold a certificate (Key Vault
+            content type application/x-pem-file or application/x-pkcs12)
+            which the collector was not configured to read, or holds a
+            container it does not open.
+        not_after:
+          type: string
+          format: date-time
+          description: 0.10.0. Expiry of the credential a secret_credential_expiry finding names.
+        credential_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: 0.10.0. The source's identifier of that credential (an Entra keyId GUID), never its value.
     CTEntry:
       type: object
       additionalProperties: false
@@ -699,7 +772,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [host_port_sni, ct_log, store, file]
+          enum: [host_port_sni, ct_log, store, file, cloud_resource]
           description: |
             Locator kind. host_port_sni: a network endpoint. ct_log: a
             Certificate Transparency log or search service that was read
@@ -707,11 +780,18 @@ components:
             read from it is its own target. 0.9.0: store: an OS or
             application certificate store on host (store required, method
             adapter only); file: a keystore or certificate file on host (path
-            required, method adapter only). 0.10.0: host_port_sni may also
-            be read by method adapter (a scanner export) with adapter
-            evidence carrying certificate. port is required for
+            required, method adapter only). port is required for
             host_port_sni and ct_log and absent for store and file. Other
             kinds (cloud resource) are added additively.
+            0.10.0: cloud_resource: a certificate or credential held by a
+            cloud platform resource, read through the platform's management
+            API (provider and resource_id required, method adapter only, no
+            port or sni). host is then the API host the record was read
+            from (for example "management.azure.com",
+            "contoso.vault.azure.net", "graph.microsoft.com"); the resource
+            is identified by provider and resource_id. 0.10.0: host_port_sni
+            may also be read by method adapter (a scanner export) with
+            adapter evidence carrying certificate.
         host:
           type: string
           minLength: 1
@@ -761,6 +841,27 @@ components:
           minLength: 1
           maxLength: 4096
           description: 0.9.0. Absolute file path on host for kind file (or the file a store entry was read from).
+        provider:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,31}$"
+          description: 0.10.0. Cloud provider of a cloud_resource target, for example "azure", "aws", "cloudflare".
+        resource_id:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: |
+            0.10.0. The provider's identifier of the resource for kind
+            cloud_resource: an Azure resource ID or Key Vault object ID
+            without version, an AWS ARN, a Cloudflare zone and certificate
+            pack ID. Stable across versions of the same certificate.
+        resource_type:
+          type: string
+          maxLength: 256
+          description: 0.10.0. The provider's resource type, for example "Microsoft.KeyVault/vaults/certificates" or "AWS::CertificateManager::Certificate".
+        region:
+          type: string
+          maxLength: 64
+          description: 0.10.0. Provider region or location of the resource, when it has one.
     TLSParams:
       type: object
       additionalProperties: false

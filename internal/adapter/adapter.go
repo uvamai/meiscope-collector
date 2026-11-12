@@ -86,6 +86,10 @@ type Features struct {
 	// LocalStoreV1 enables store and file targets and adapter evidence
 	// (proposed contract 0.5.0). Environment: MEISCOPE_FEATURE_LOCAL_STORE_V1.
 	LocalStoreV1 bool
+	// CloudResourceV1 enables cloud_resource targets and the adapter
+	// evidence fields of the proposed contract 0.10.0 (cloud adapters).
+	// Environment: MEISCOPE_FEATURE_CLOUD_RESOURCE_V1.
+	CloudResourceV1 bool
 	// AdapterEvidenceV2 enables adapter observations that contract 0.9.0
 	// does not allow (proposed contract 0.10.0, api/proposed): host_port_sni
 	// targets with adapter evidence (scanner exports) and certificates
@@ -98,20 +102,28 @@ type Features struct {
 // EnvLocalStoreV1 is the environment variable of Features.LocalStoreV1.
 const EnvLocalStoreV1 = "MEISCOPE_FEATURE_LOCAL_STORE_V1"
 
+// EnvCloudResourceV1 is the environment variable of Features.CloudResourceV1.
+const EnvCloudResourceV1 = "MEISCOPE_FEATURE_CLOUD_RESOURCE_V1"
+
 // EnvAdapterEvidenceV2 is the environment variable of Features.AdapterEvidenceV2.
 const EnvAdapterEvidenceV2 = "MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2"
 
 // LoadFeatures reads the feature switches through getenv; unset means off.
 func LoadFeatures(getenv func(string) string) (Features, error) {
 	var f Features
-	for name, dst := range map[string]*bool{EnvLocalStoreV1: &f.LocalStoreV1, EnvAdapterEvidenceV2: &f.AdapterEvidenceV2} {
-		if v := strings.TrimSpace(getenv(name)); v != "" {
-			b, err := strconv.ParseBool(v)
-			if err != nil {
-				return Features{}, fmt.Errorf("%s: want true or false, got %q", name, v)
-			}
-			*dst = b
+	for _, sw := range []struct {
+		env string
+		dst *bool
+	}{{EnvLocalStoreV1, &f.LocalStoreV1}, {EnvCloudResourceV1, &f.CloudResourceV1}, {EnvAdapterEvidenceV2, &f.AdapterEvidenceV2}} {
+		v := strings.TrimSpace(getenv(sw.env))
+		if v == "" {
+			continue
 		}
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Features{}, fmt.Errorf("%s: want true or false, got %q", sw.env, v)
+		}
+		*sw.dst = b
 	}
 	return f, nil
 }
