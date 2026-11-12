@@ -18,9 +18,9 @@ pipeline in `.github/workflows` and signed (cosign keyless, SBOM, provenance).
 > and verifies the signed scopes, polls CT for the owned domains and
 > reports its state on `GET /status`
 > ([docs/install.md](docs/install.md#running-an-enrolled-collector)).
-> Probing the scopes fetched from the core is not wired in yet; a collector
-> that is not enrolled can still probe a signed scope from a file
-> ([docs/probe.md](docs/probe.md)).
+> It probes exactly the signed scopes it holds, under the same ScanPolicy as
+> a scope file; a collector that is not enrolled can still probe a signed
+> scope from a file ([docs/probe.md](docs/probe.md)).
 
 ## What the collector sends, and what it never sends
 

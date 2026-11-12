@@ -85,31 +85,62 @@ func readScopes(path string) ([]scope.Signed, error) {
 	return []scope.Signed{one}, nil
 }
 
-// probeSchedule rescans every verified scope on its own interval.
+// scopeSource returns the signed scopes a schedule may run: the scope file
+// of a collector that is not enrolled, or the scopes an enrolled collector
+// fetched from the core (scopesync.Set.Signed). Every scope is verified
+// again here, against the pinned keys, before anything is planned.
+type scopeSource func() ([]scope.Signed, error)
+
+// fileSource reads MEISCOPE_SCOPE_FILE on every tick.
+func fileSource(path string) scopeSource {
+	return func() ([]scope.Signed, error) { return readScopes(path) }
+}
+
+// runFunc runs one scope: runner.Runner.Run, which holds every ScanPolicy
+// guarantee (plan and deny list, rate per /24, one connection per
+// target:port, windows, dry run, canary, pause). Tests replace it.
+type runFunc func(ctx context.Context, sc *scope.Scope, emit func(submit.Observation)) (runner.Report, error)
+
+// probeSchedule rescans every verified scope on its own interval. It runs
+// only the scopes its source lists now: a scope that is no longer listed,
+// has expired, or changed version has its run in progress cancelled at the
+// next tick, and stopAll cancels everything at once.
 type probeSchedule struct {
-	path    string
+	source  scopeSource
 	ring    scope.Keyring
 	tracker *scope.Tracker
 	run     *runner.Runner
+	runFn   runFunc
 	clk     clock.Clock
 	log     *slog.Logger
 	submit  func(context.Context, []submit.Observation) error
 
-	mu      sync.Mutex
-	next    map[string]time.Time // scope ID -> next run
-	running map[string]bool
-	wg      sync.WaitGroup
+	mu       sync.Mutex
+	next     map[string]time.Time // scope ID -> next run
+	running  map[string]run
+	stopped  bool
+	lastTick time.Time
+	live     int
+	wg       sync.WaitGroup
 }
 
-// tick verifies the scope file and starts every run that is due. A scope
-// that fails verification is never run; the others still are.
+// run is a scope run in progress.
+type run struct {
+	version int64
+	cancel  context.CancelFunc
+}
+
+// tick verifies the listed scopes, cancels runs whose scope is gone or
+// changed, and starts every run that is due. A scope that fails
+// verification is never run; the others still are.
 func (s *probeSchedule) tick(ctx context.Context) {
-	signed, err := readScopes(s.path)
+	signed, err := s.source()
 	if err != nil {
 		s.log.ErrorContext(ctx, "scopes not loaded", "error", err)
 		return
 	}
 	now := s.clk.Now()
+	live := map[string]*scope.Scope{}
 	for _, sg := range signed {
 		sc, err := scope.VerifyKeyring(sg, s.ring, now)
 		if err == nil {
@@ -119,41 +150,123 @@ func (s *probeSchedule) tick(ctx context.Context) {
 			s.log.ErrorContext(ctx, "scope refused", "key_id", sg.KeyID, "error", err)
 			continue
 		}
-		if s.run.Paused() || !s.due(sc.ID, now) {
+		live[sc.ID] = sc
+	}
+	s.prune(ctx, live, now)
+	for _, sc := range live {
+		if s.run.Paused() {
+			break
+		}
+		runCtx, ok := s.start(ctx, sc, now)
+		if !ok {
 			continue
 		}
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			defer s.done(sc.ID)
-			s.runScope(ctx, sc, now)
+			defer s.done(sc.ID, sc.Version)
+			s.runScope(runCtx, sc, now)
 		}()
 	}
 }
 
-func (s *probeSchedule) due(id string, now time.Time) bool {
+// prune cancels the runs of scopes that are not live any more, or whose
+// version changed, and forgets their schedule.
+func (s *probeSchedule) prune(ctx context.Context, live map[string]*scope.Scope, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.running[id] || now.Before(s.next[id]) {
-		return false
+	s.lastTick, s.live = now, len(live)
+	for id, r := range s.running {
+		sc, ok := live[id]
+		switch {
+		case !ok:
+			s.log.InfoContext(ctx, "scope run cancelled: the scope is no longer valid or listed", "scope", id)
+			r.cancel()
+		case sc.Version != r.version:
+			s.log.InfoContext(ctx, "scope run cancelled: a new version replaces it", "scope", id, "version", sc.Version)
+			r.cancel()
+			delete(s.next, id) // plan the new version at once
+		}
 	}
-	s.running[id] = true
-	return true
+	for id := range s.next {
+		if _, ok := live[id]; !ok {
+			delete(s.next, id)
+		}
+	}
 }
 
-func (s *probeSchedule) done(id string) {
+// start marks a run of sc as running when it is due and the schedule is
+// not stopped; the returned context is cancelled by prune or stopAll.
+func (s *probeSchedule) start(ctx context.Context, sc *scope.Scope, now time.Time) (context.Context, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.running, id)
+	if s.stopped {
+		return nil, false
+	}
+	if _, busy := s.running[sc.ID]; busy || now.Before(s.next[sc.ID]) {
+		return nil, false
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	s.running[sc.ID] = run{version: sc.Version, cancel: cancel}
+	return runCtx, true
+}
+
+func (s *probeSchedule) done(id string, version int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r, ok := s.running[id]; ok && r.version == version {
+		r.cancel()
+		delete(s.running, id)
+	}
+}
+
+// stopAll cancels every run in progress and starts no new one, for good
+// (an enrolled collector whose certificate expired).
+func (s *probeSchedule) stopAll(reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.stopped {
+		s.log.Warn("probing stopped", "reason", reason)
+	}
+	s.stopped = true
+	for _, r := range s.running {
+		r.cancel()
+	}
+	clear(s.next)
+}
+
+// scheduleStatus is what GET /status shows of the schedule.
+type scheduleStatus struct {
+	State    string    `json:"state"` // active, paused or stopped
+	Scopes   int       `json:"scopes"`
+	Running  int       `json:"running"`
+	LastTick time.Time `json:"last_tick,omitzero"`
+}
+
+func (s *probeSchedule) status() scheduleStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := scheduleStatus{State: "active", Scopes: s.live, Running: len(s.running), LastTick: s.lastTick}
+	switch {
+	case s.stopped:
+		st.State = "stopped"
+	case s.run.Paused():
+		st.State = "paused"
+	}
+	return st
 }
 
 func (s *probeSchedule) runScope(ctx context.Context, sc *scope.Scope, started time.Time) {
 	var obs []submit.Observation
-	rep, err := s.run.Run(ctx, sc, func(o submit.Observation) { obs = append(obs, o) })
+	rep, err := s.runFn(ctx, sc, func(o submit.Observation) { obs = append(obs, o) })
 	s.mu.Lock()
-	if errors.Is(err, runner.ErrPaused) {
+	switch {
+	case errors.Is(err, runner.ErrPaused):
 		delete(s.next, sc.ID) // run again as soon as the runner resumes
-	} else {
+	case ctx.Err() != nil:
+		// Cancelled by prune or stopAll: prune has already decided when the
+		// scope may run again.
+	default:
 		s.next[sc.ID] = started.Add(time.Duration(sc.RescanIntervalSeconds) * time.Second)
 	}
 	s.mu.Unlock()
@@ -223,19 +336,9 @@ func newProbeSchedule(getenv func(string) string, sub *submit.Client, stdout io.
 	if getenv(envScopeState) == "" {
 		log.Warn(envScopeState + " is not set: accepted scope versions are not kept across restarts")
 	}
-	s := &probeSchedule{
-		path: path, ring: ring, tracker: tr, clk: clock.System{}, log: log,
-		run:  runner.New(runner.Options{Logger: log}),
-		next: map[string]time.Time{}, running: map[string]bool{},
-	}
+	s := newSchedule(fileSource(path), ring, tr, log)
 	if sub != nil {
-		s.submit = func(ctx context.Context, obs []submit.Observation) error {
-			res, err := sub.Submit(ctx, obs)
-			if err == nil {
-				log.InfoContext(ctx, "observations submitted", "accepted", res.Accepted, "duplicates", res.Duplicates, "rejected", len(res.Rejected))
-			}
-			return err
-		}
+		s.submit = submitTo(sub, log)
 	} else {
 		log.Warn("MEISCOPE_CORE_URL is not set: observations are written to standard output, not submitted")
 		var mu sync.Mutex
@@ -246,4 +349,25 @@ func newProbeSchedule(getenv func(string) string, sub *submit.Client, stdout io.
 		}
 	}
 	return s, nil
+}
+
+// newSchedule is a schedule over source with the default runner.
+func newSchedule(source scopeSource, ring scope.Keyring, tr *scope.Tracker, log *slog.Logger) *probeSchedule {
+	r := runner.New(runner.Options{Logger: log})
+	return &probeSchedule{
+		source: source, ring: ring, tracker: tr, clk: clock.System{}, log: log,
+		run: r, runFn: r.Run,
+		next: map[string]time.Time{}, running: map[string]run{},
+	}
+}
+
+// submitTo sends observations with sub and logs the core's answer.
+func submitTo(sub *submit.Client, log *slog.Logger) func(context.Context, []submit.Observation) error {
+	return func(ctx context.Context, obs []submit.Observation) error {
+		res, err := sub.Submit(ctx, obs)
+		if err == nil {
+			log.InfoContext(ctx, "observations submitted", "accepted", res.Accepted, "duplicates", res.Duplicates, "rejected", len(res.Rejected))
+		}
+		return err
+	}
 }

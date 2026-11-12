@@ -71,14 +71,7 @@ over mTLS with that identity, at the core URL stored at enrolment:
 | Certificate renewal | At two thirds of the certificate's lifetime: a new key **on this host**, a CSR, `POST /collector/v1/certificate` authenticated by the current certificate, then the new key and certificate replace the old ones together (one rename). The next request presents the new certificate. | once per lifetime (about every 20 days); after a failure, again after 30 s, 1 min, 2 min, ... at most 1 h (jittered) |
 | Scan scopes | `GET /collector/v1/scopes`. Each scope is verified with the scope-signing keys pinned at enrolment, validated, and refused if its version is lower than the last accepted for its id (or the same version with other bytes). When a fetch fails, the last good set is kept; scopes the core no longer lists, or that have expired, are dropped. | `MEISCOPE_SCOPE_REFRESH` (5 min); after a failure, from 30 s doubling up to that interval |
 | Certificate Transparency | Reads the owned domains from the core (`GET /collector/v1/owned-domains`), polls public CT sources for them and submits what it finds (`POST /collector/v1/observations`), as `ct-poll` does ([ct.md](ct.md)). | `MEISCOPE_CT_INTERVAL` (1 h) |
-
-> **Probing scopes from the core is not available yet.** The scopes are
-> fetched, verified and held (see `GET /status`), but this release does not
-> probe them: the probe schedule for enrolled collectors arrives with WP0.3.
-> Probing a signed scope from a file (`MEISCOPE_SCOPE_FILE`,
-> [probe.md](probe.md)) remains available for a collector that is **not**
-> enrolled; an enrolled collector refuses to start with `MEISCOPE_SCOPE_FILE`
-> set, so the two sources are never mixed.
+| Probing | Runs exactly the scopes the set holds now, each verified again against the pinned keys, with the same runner and ScanPolicy as a scope file ([probe.md](probe.md)): plan and deny list, rate per /24, one connection per target:port, windows, dry run, canary, pause (`POST /pause`). A scope the core stops listing, that expires or that is replaced by a new version has its run in progress cancelled at the next tick; when the collector certificate expires every run stops at once and nothing is probed again. Results go to `POST /collector/v1/observations` over the same mTLS client. | every 5 s the schedule checks what is due; each scope at its own rescan interval |
 
 If the certificate expires without being renewed (the core was unreachable
 for the last third of its lifetime, or refused every renewal), the collector
@@ -126,12 +119,13 @@ $ curl -s http://127.0.0.1:8090/status
     "renewal": { "last_renewed": "…", "consecutive_failures": 0, "expired": false }
   },
   "scopes": { "count": 1, "ids": ["7d0f…"], "last_fetch": "…", "last_attempt": "…", "refused_in_last_fetch": 0 },
-  "probing": "not available yet for scopes from the core: …",
+  "probing": { "state": "active", "scopes": 1, "running": 0, "last_tick": "…" },
   "ct": { "enabled": true, "interval": "1h0m0s", "last_poll": "…" }
 }
 ```
 
-`certificate.state` is `valid`, `renewal_failing` (renewal is being retried;
+`probing.state` is `active`, `paused` (after `POST /pause`) or `stopped`
+(the certificate expired). `certificate.state` is `valid`, `renewal_failing` (renewal is being retried;
 the current certificate still works) or `expired`. `/status` never shows
 keys, tokens or credentials; `/healthz` is unchanged (liveness only).
 `/status` is served only by an enrolled collector.
