@@ -1,0 +1,38 @@
+IP Address,DNS Name,Port,Protocol,Plugin,Plugin Name,Plugin Text
+192.0.2.12,api.example.test,636,TCP,10863,SSL Certificate Information,"Plugin Output: 
+The following certificate was part of the certificate chain sent by
+the remote host for this service :
+
+Subject Name:
+
+Organization: Synthetic Test
+Common Name: api.example.test
+
+Issuer Name:
+
+Organization: Synthetic Test
+Common Name: Synthetic Test CA
+
+Serial Number: 2A 02
+
+Version: 3
+
+Signature Algorithm: SHA-256 With ECDSA Encryption
+
+Not Valid Before: Sep 01 00:00:00 2026 GMT
+Not Valid After: Nov 30 00:00:00 2026 GMT
+
+Public Key Info:
+
+Algorithm: EC Public Key
+Key Length: 256 bits
+
+Extension: Subject Alternative Name (2.5.29.17)
+Critical: 0
+DNS: api.example.test
+
+Fingerprints :
+
+SHA-256 Fingerprint: 26 3C D7 3A FC 50 E7 25 FA 2B EC 72 E2 E6 0F 71 6C 7E CC E8 16 F9 6C C8 00 E4 C9 1D DF ED E3 53
+SHA-1 Fingerprint: BC 33 E1 A2 CD DE 40 76 03 29 36 7D EC B6 E5 95 22 77 58 8B
+"

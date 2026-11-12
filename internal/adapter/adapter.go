@@ -90,6 +90,13 @@ type Features struct {
 	// evidence fields of the proposed contract 0.10.0 (cloud adapters).
 	// Environment: MEISCOPE_FEATURE_CLOUD_RESOURCE_V1.
 	CloudResourceV1 bool
+	// AdapterEvidenceV2 enables adapter observations that contract 0.9.0
+	// does not allow (proposed contract 0.10.0, api/proposed): host_port_sni
+	// targets with adapter evidence (scanner exports) and certificates
+	// identified by issuer and serial when the source reports no SHA-1
+	// (x509-certificate-exporter, Qualys). Environment:
+	// MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2.
+	AdapterEvidenceV2 bool
 }
 
 // EnvLocalStoreV1 is the environment variable of Features.LocalStoreV1.
@@ -98,13 +105,16 @@ const EnvLocalStoreV1 = "MEISCOPE_FEATURE_LOCAL_STORE_V1"
 // EnvCloudResourceV1 is the environment variable of Features.CloudResourceV1.
 const EnvCloudResourceV1 = "MEISCOPE_FEATURE_CLOUD_RESOURCE_V1"
 
+// EnvAdapterEvidenceV2 is the environment variable of Features.AdapterEvidenceV2.
+const EnvAdapterEvidenceV2 = "MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2"
+
 // LoadFeatures reads the feature switches through getenv; unset means off.
 func LoadFeatures(getenv func(string) string) (Features, error) {
 	var f Features
 	for _, sw := range []struct {
 		env string
 		dst *bool
-	}{{EnvLocalStoreV1, &f.LocalStoreV1}, {EnvCloudResourceV1, &f.CloudResourceV1}} {
+	}{{EnvLocalStoreV1, &f.LocalStoreV1}, {EnvCloudResourceV1, &f.CloudResourceV1}, {EnvAdapterEvidenceV2, &f.AdapterEvidenceV2}} {
 		v := strings.TrimSpace(getenv(sw.env))
 		if v == "" {
 			continue

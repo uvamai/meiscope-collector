@@ -1,0 +1,38 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/apis/networking.k8s.io/v1/namespaces/legacy/ingresses",
+  "query": "limit=2"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "kind": "IngressList",
+   "apiVersion": "networking.k8s.io/v1",
+   "metadata": {
+    "resourceVersion": "5001"
+   },
+   "items": [
+    {
+     "metadata": {
+      "name": "legacy",
+      "namespace": "legacy"
+     },
+     "spec": {
+      "tls": [
+       {
+        "hosts": [
+         "legacy.example.test"
+        ],
+        "secretName": "legacy-tls"
+       }
+      ]
+     }
+    }
+   ]
+  }
+ }
+}

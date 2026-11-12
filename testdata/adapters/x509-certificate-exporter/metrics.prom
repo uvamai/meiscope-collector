@@ -1,0 +1,22 @@
+# SYNTHETIC: hand-made from the label set of x509-certificate-exporter 3.x
+# (enix/x509-certificate-exporter README); re-record from a real exporter.
+# HELP x509_cert_not_after Certificate expiration timestamp
+# TYPE x509_cert_not_after gauge
+x509_cert_not_after{filename="www.crt",filepath="/etc/ssl/www/www.crt",issuer_CN="Synthetic Test CA",issuer_O="Synthetic Test",serial_number="10753",subject_CN="www.example.test",subject_O="Synthetic Test"} 1.7644608e+09
+x509_cert_not_after{issuer_CN="Synthetic Test CA",issuer_O="Synthetic Test",secret_key="tls.crt",secret_name="api-tls",secret_namespace="api",serial_number="10754",subject_CN="api.example.test",subject_O="Synthetic Test"} 1.7644608e+09
+x509_cert_not_after{filename="ca.crt",filepath="/etc/ssl/www/ca.crt",issuer_CN="Synthetic Test CA",issuer_O="Synthetic Test, Inc",serial_number="4097",subject_CN="Synthetic Test CA",subject_O="Synthetic Test"} 2.072217600e+09
+x509_cert_not_after{filename="noserial.crt",filepath="/etc/ssl/noserial.crt",issuer_CN="Synthetic Test CA",subject_CN="noserial.example.test"} 1.7644608e+09
+x509_cert_not_after{filename="rel.crt",filepath="relative/rel.crt",issuer_CN="Synthetic Test CA",serial_number="7"} 1.7644608e+09
+x509_cert_not_after{broken="unterminated} 1
+# HELP x509_cert_not_before Certificate validity start timestamp
+# TYPE x509_cert_not_before gauge
+x509_cert_not_before{filename="www.crt",filepath="/etc/ssl/www/www.crt",issuer_CN="Synthetic Test CA",issuer_O="Synthetic Test",serial_number="10753",subject_CN="www.example.test",subject_O="Synthetic Test"} 1.7567136e+09
+x509_cert_not_before{issuer_CN="Synthetic Test CA",issuer_O="Synthetic Test",secret_key="tls.crt",secret_name="api-tls",secret_namespace="api",serial_number="10754",subject_CN="api.example.test",subject_O="Synthetic Test"} 1.7567136e+09
+x509_cert_not_before{filename="ca.crt",filepath="/etc/ssl/www/ca.crt",issuer_CN="Synthetic Test CA",issuer_O="Synthetic Test, Inc",serial_number="4097",subject_CN="Synthetic Test CA",subject_O="Synthetic Test"} 1.7567136e+09
+x509_cert_not_before{filename="nonotafter.crt",filepath="/etc/ssl/nonotafter.crt",issuer_CN="Synthetic Test CA",serial_number="8"} 1.7567136e+09
+# HELP x509_cert_expired Indicates if the certificate is currently expired
+# TYPE x509_cert_expired gauge
+x509_cert_expired{filename="www.crt",filepath="/etc/ssl/www/www.crt",issuer_CN="Synthetic Test CA",issuer_O="Synthetic Test",serial_number="10753",subject_CN="www.example.test",subject_O="Synthetic Test"} 0
+# HELP x509_read_errors Indicates the number of read failure(s)
+# TYPE x509_read_errors gauge
+x509_read_errors 2

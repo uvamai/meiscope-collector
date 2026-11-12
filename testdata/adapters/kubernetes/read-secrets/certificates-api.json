@@ -1,0 +1,21 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/apis/cert-manager.io/v1/namespaces/api/certificates",
+  "query": "limit=2"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "kind": "CertificateList",
+   "apiVersion": "cert-manager.io/v1",
+   "metadata": {
+    "resourceVersion": "5001"
+   },
+   "items": []
+  }
+ }
+}

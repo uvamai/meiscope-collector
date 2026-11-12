@@ -66,7 +66,10 @@ func TestCloudProposalObservations(t *testing.T) {
 	noEvidence.Adapter = nil
 	providerOnStore := storeObservation()
 	providerOnStore.Target.Provider = "azure"
-	evidenceOnEndpoint := cloudObservation()
+	// The shared proposal allows certificate evidence on host_port_sni
+	// (scanner exports, WP1.3, proposed010_test.go); evidence without a
+	// certificate there stays invalid.
+	evidenceOnEndpoint := expiryObservation()
 	evidenceOnEndpoint.Target = submit.Target{Kind: submit.KindHostPortSNI, Host: "www.contoso.example.test", Port: 443}
 	res, err := cl.Submit(context.Background(), []submit.Observation{
 		cloudObservation(), expiryObservation(), storeObservation(), withPort, noResource, probe, noEvidence, providerOnStore, evidenceOnEndpoint,
@@ -120,11 +123,17 @@ func TestCloudProposalFieldsAreReviewed(t *testing.T) {
 	vendored, vStrict := schemaProps(t, submittest.VendoredSpecPath())
 	proposed, pStrict := schemaProps(t, submittest.CloudProposedSpecPath())
 	added := map[string]string{
-		"AdapterEvidence": "bindings,renewal_mode",
-		"Binding":         "hostname,port,resource_id",
-		"Custody":         "key_exportable",
-		"Finding":         "credential_id,not_after",
-		"Target":          "provider,region,resource_id,resource_type",
+		// WP1.2 (cloud) and WP1.3 (kubernetes, scanners) share this proposal.
+		"AdapterEvidence":        "bindings,kubernetes,renewal_mode,scanner",
+		"Binding":                "hostname,port,resource_id",
+		"CertificateMetadata":    "dns_names,sha256",
+		"CertManagerCertificate": "dns_names,issuer_group,issuer_kind,issuer_name,name,not_after,ready,renewal_time,revision",
+		"Custody":                "key_exportable",
+		"Finding":                "credential_id,not_after",
+		"KubernetesEvidence":     "cert_manager,chain_length,cluster,hostnames,name,namespace,references",
+		"KubernetesRef":          "kind,name,namespace",
+		"ScannerEvidence":        "check,dns_name,file",
+		"Target":                 "provider,region,resource_id,resource_type",
 	}
 	for name, props := range proposed {
 		var extra []string
@@ -139,8 +148,8 @@ func TestCloudProposalFieldsAreReviewed(t *testing.T) {
 		if name != "Target" && vStrict[name] != pStrict[name] {
 			t.Errorf("%s changes additionalProperties", name)
 		}
-		if name == "Binding" && pStrict[name] {
-			t.Error("Binding must let readers ignore unknown fields")
+		if _, isNew := vendored[name]; !isNew && pStrict[name] {
+			t.Errorf("%s must let readers ignore unknown fields", name)
 		}
 	}
 	for name, props := range vendored {

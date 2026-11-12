@@ -115,6 +115,34 @@ Real-core ingestion is left to the Phase 0 integration step.
 behind `MEISCOPE_FEATURE_CLOUD_RESOURCE_V1` (off by default); test them
 against `submittest.NewCloudProposedCore()`.
 
+### Proposed contract 0.10.0 (WP1.3)
+
+The Kubernetes, x509-certificate-exporter, Qualys and Tenable adapters
+(docs/adapters-kubernetes.md, docs/adapters-scanners.md) need four
+additive changes, proposed in the same shared `api/proposed/collector-0.10.0-proposed.yaml`
+as the cloud additions:
+adapter evidence on `host_port_sni` targets (a scanner export), certificate
+identity by issuer and serial where the source has no SHA-1 (the exporter,
+Qualys), and the evidence objects `kubernetes` and `scanner` plus `certificate.sha256` and `certificate.dns_names`. The
+evidence objects are unknown properties that 0.9.0 accepts and ignores, so
+Kubernetes Secrets read with `read_tls_crt=true` (with `renewal_mode` from the shared proposal) are sent under `MEISCOPE_FEATURE_LOCAL_STORE_V1` alone.
+A fourth change lets a `store` target with `kubernetes` evidence and a
+`secret_not_read` finding omit `certificate` (outcome `reached`): the
+Kubernetes adapter's default, which reads no Secret data.
+Everything 0.9.0 would refuse stays behind
+`MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2`. No new target kind is proposed: a
+Kubernetes Secret is a `store` (`kubernetes/<cluster>/<namespace>/<secret>`).
+
+## Adapters
+
+| Adapter | Reads | Document |
+|---|---|---|
+| `osquery` | Fleet, an osquery log sink or osqueryi output | docs/osquery.md |
+| `azure_key_vault`, `azure_app_service`, `azure_app_gateway`, `entra_id`, `defender_tvm` | Azure, Entra ID and Defender APIs | docs/azure.md |
+| `kubernetes` | Ingress and Gateway TLS references, cert-manager Certificates, TLS Secret metadata; `tls.crt` only with `read_tls_crt` | docs/adapters-kubernetes.md |
+| `x509-certificate-exporter` | the exporter's Prometheus metrics endpoint | docs/adapters-scanners.md |
+| `qualys`, `tenable` | CSV exports given by path | docs/adapters-scanners.md |
+
 ## Running adapters
 
 ```
@@ -132,6 +160,7 @@ buffer when `MEISCOPE_BUFFER_DIR` is set (recommended), else straight to the cor
 | `MEISCOPE_CORE_URL` | https URL of the core |
 | `MEISCOPE_FEATURE_LOCAL_STORE_V1` | `true` enables store and file observations (proposed contract); default off |
 | `MEISCOPE_FEATURE_CLOUD_RESOURCE_V1` | `true` enables cloud_resource observations (proposed contract 0.10.0); default off |
+| `MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2` | `true` enables the observations of proposed contract 0.10.0 (scanner exports on `host_port_sni`, certificates identified by issuer and serial); default off |
 | `MEISCOPE_CREDENTIAL_FILE`, `MEISCOPE_CREDENTIAL_KEY_FILE` | the age-encrypted credential file and the collector's identity file |
 | `MEISCOPE_BUFFER_DIR` | directory of the local buffer |
 | `MEISCOPE_BUFFER_KEY_REF` | credential reference of the buffer key (default `buffer_key`; 32 bytes, base64) |
