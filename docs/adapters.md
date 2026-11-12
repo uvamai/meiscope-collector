@@ -118,15 +118,18 @@ against `submittest.NewCloudProposedCore()`.
 ### Proposed contract 0.10.0 (WP1.3)
 
 The Kubernetes, x509-certificate-exporter, Qualys and Tenable adapters
-(docs/adapters-kubernetes.md, docs/adapters-scanners.md) need three
+(docs/adapters-kubernetes.md, docs/adapters-scanners.md) need four
 additive changes, proposed in the same shared `api/proposed/collector-0.10.0-proposed.yaml`
 as the cloud additions:
 adapter evidence on `host_port_sni` targets (a scanner export), certificate
 identity by issuer and serial where the source has no SHA-1 (the exporter,
 Qualys), and the evidence objects `kubernetes` and `scanner` plus `certificate.sha256` and `certificate.dns_names`. The
 evidence objects are unknown properties that 0.9.0 accepts and ignores, so
-Kubernetes Secrets (with `renewal_mode` from the shared proposal) are sent under `MEISCOPE_FEATURE_LOCAL_STORE_V1` alone;
-everything 0.9.0 would refuse stays behind
+Kubernetes Secrets read with `read_tls_crt=true` (with `renewal_mode` from the shared proposal) are sent under `MEISCOPE_FEATURE_LOCAL_STORE_V1` alone.
+A fourth change lets a `store` target with `kubernetes` evidence and a
+`secret_not_read` finding omit `certificate` (outcome `reached`): the
+Kubernetes adapter's default, which reads no Secret data.
+Everything 0.9.0 would refuse stays behind
 `MEISCOPE_FEATURE_ADAPTER_EVIDENCE_V2`. No new target kind is proposed: a
 Kubernetes Secret is a `store` (`kubernetes/<cluster>/<namespace>/<secret>`).
 
@@ -136,7 +139,7 @@ Kubernetes Secret is a `store` (`kubernetes/<cluster>/<namespace>/<secret>`).
 |---|---|---|
 | `osquery` | Fleet, an osquery log sink or osqueryi output | docs/osquery.md |
 | `azure_key_vault`, `azure_app_service`, `azure_app_gateway`, `entra_id`, `defender_tvm` | Azure, Entra ID and Defender APIs | docs/azure.md |
-| `kubernetes` | TLS Secrets, cert-manager Certificates, Ingress and Gateway TLS | docs/adapters-kubernetes.md |
+| `kubernetes` | Ingress and Gateway TLS references, cert-manager Certificates, TLS Secret metadata; `tls.crt` only with `read_tls_crt` | docs/adapters-kubernetes.md |
 | `x509-certificate-exporter` | the exporter's Prometheus metrics endpoint | docs/adapters-scanners.md |
 | `qualys`, `tenable` | CSV exports given by path | docs/adapters-scanners.md |
 

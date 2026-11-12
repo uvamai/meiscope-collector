@@ -1,0 +1,77 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/apis/cert-manager.io/v1/namespaces/web/certificates",
+  "query": "limit=2"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "kind": "CertificateList",
+   "apiVersion": "cert-manager.io/v1",
+   "metadata": {
+    "resourceVersion": "5001"
+   },
+   "items": [
+    {
+     "metadata": {
+      "name": "www",
+      "namespace": "web",
+      "resourceVersion": "77"
+     },
+     "spec": {
+      "secretName": "www-tls",
+      "dnsNames": [
+       "www.example.test",
+       "example.test"
+      ],
+      "issuerRef": {
+       "name": "acme-staging",
+       "kind": "ClusterIssuer",
+       "group": "cert-manager.io"
+      }
+     },
+     "status": {
+      "conditions": [
+       {
+        "type": "Ready",
+        "status": "True"
+       }
+      ],
+      "notAfter": "2026-11-30T00:00:00Z",
+      "renewalTime": "2026-10-31T00:00:00Z",
+      "revision": 3
+     }
+    },
+    {
+     "metadata": {
+      "name": "pending",
+      "namespace": "web",
+      "resourceVersion": "78"
+     },
+     "spec": {
+      "secretName": "pending-tls",
+      "dnsNames": [
+       "pending.example.test"
+      ],
+      "issuerRef": {
+       "name": "acme-staging",
+       "kind": "ClusterIssuer"
+      }
+     },
+     "status": {
+      "conditions": [
+       {
+        "type": "Ready",
+        "status": "False"
+       }
+      ]
+     }
+    }
+   ]
+  }
+ }
+}

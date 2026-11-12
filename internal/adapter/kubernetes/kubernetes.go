@@ -1,10 +1,15 @@
 // Package kubernetes is the Kubernetes adapter (FR-DISC-027). It reads,
-// through the Kubernetes API and with read-only permissions, TLS Secrets
-// (type kubernetes.io/tls: the certificate in tls.crt, and only whether
-// tls.key holds anything), cert-manager Certificate resources and the TLS
-// sections of Ingresses and Gateways, and maps each TLS Secret to a store
-// observation "kubernetes/<cluster>/<namespace>/<secret>" with method
-// adapter and source kubernetes. It never writes, never decodes tls.key and
+// through the Kubernetes API and with read-only permissions, the TLS
+// sections of Ingresses and Gateways, cert-manager Certificate resources
+// and, where permitted, TLS Secret metadata (names and cert-manager
+// annotations only, requested as PartialObjectMetadataList, never data).
+// Each Secret found that way becomes a store observation
+// "kubernetes/<cluster>/<namespace>/<secret>" with method adapter and
+// source kubernetes, reported without its certificate (finding
+// secret_not_read). Only with read_tls_crt=true and a namespaces
+// allow-list does it get each named Secret in those namespaces and parse
+// tls.crt; it then only tests whether tls.key is non-empty, never decodes or
+// keeps it, and zeroes the raw response once decoded. It never writes and
 // never connects to anything but the configured API server.
 package kubernetes
 
@@ -45,16 +50,17 @@ func (a *Adapter) Describe() adapter.Description {
 	return adapter.Description{
 		Name:    Name,
 		Source:  Source,
-		Summary: "Kubernetes TLS Secrets, cert-manager Certificates and Ingress/Gateway TLS bindings (read-only API)",
+		Summary: "Kubernetes Ingress/Gateway TLS references, cert-manager Certificates and TLS Secret metadata (read-only API; Secret data only with read_tls_crt)",
 		Settings: []string{
 			"cluster (required: a short name for the cluster, used in the store locator)",
 			"api_server (https URL of the API server; default https://kubernetes.default.svc with in_cluster)",
 			"one of: ca_file (PEM of the cluster CA), kubeconfig (+ kube_context; only the cluster's server and CA are read), in_cluster=true, system_roots=true",
-			"namespaces (comma-separated; default all namespaces)",
+			"namespaces (comma-separated; default all namespaces; required with read_tls_crt)",
+			"read_tls_crt (default false: Secret data is never read; true gets each named Secret in the listed namespaces and parses tls.crt only)",
 			"page_size (default 500, 1..5000), rate_per_second (default 5)",
 			"cert_manager (default true), ingress (default true), gateway_api (default false)",
 		},
-		Credentials: []string{"bearer_token (required unless in_cluster=true, which reads the pod's service-account token)"},
+		Credentials: []string{"bearer_token (required unless in_cluster=true with the in-cluster API server, which reads the pod's service-account token)"},
 	}
 }
 
@@ -96,13 +102,28 @@ func (a *Adapter) Validate(cfg adapter.Config) error {
 	} else if !inCluster && cfg.Setting("kubeconfig", "") == "" {
 		return errors.New("kubernetes: api_server is required (or kubeconfig, or in_cluster=true)")
 	}
-	if _, ok := cfg.Credentials["bearer_token"]; !ok && !inCluster {
-		return errors.New("kubernetes: credentials.bearer_token (a credential reference) is required unless in_cluster=true")
+	if _, ok := cfg.Credentials["bearer_token"]; !ok {
+		server := cfg.Setting("api_server", "")
+		if server == "" {
+			server = DefaultInClusterServer
+		}
+		u, _ := apiServerURL(server)
+		if !inCluster || !inClusterServer(u) {
+			return errors.New("kubernetes: " + errNoToken.Error())
+		}
 	}
-	for _, ns := range splitList(cfg.Setting("namespaces", "")) {
+	namespaces := splitList(cfg.Setting("namespaces", ""))
+	for _, ns := range namespaces {
 		if !dnsLabel.MatchString(ns) {
 			return fmt.Errorf("kubernetes: namespace %q is not a valid name", ns)
 		}
+	}
+	readData, err := boolSetting(cfg, "read_tls_crt", false)
+	if err != nil {
+		return err
+	}
+	if readData && len(namespaces) == 0 {
+		return errors.New("kubernetes: read_tls_crt=true needs a namespaces allow-list (Secret data is never read cluster-wide)")
 	}
 	if err := intRange(cfg, "page_size", 1, 5000); err != nil {
 		return err
@@ -164,8 +185,8 @@ func splitList(s string) []string {
 	return out
 }
 
-// Sync reads the cluster and returns the TLS Secrets that changed since the
-// cursor.
+// Sync reads the cluster and returns the TLS Secrets whose observation
+// changed since the cursor.
 func (a *Adapter) Sync(ctx context.Context, cfg adapter.Config, since adapter.Cursor) (adapter.Result, error) {
 	return a.sync(ctx, cfg, since)
 }

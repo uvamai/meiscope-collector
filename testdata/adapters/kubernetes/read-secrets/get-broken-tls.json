@@ -1,0 +1,28 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/api/v1/namespaces/web/secrets/broken-tls",
+  "query": ""
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "metadata": {
+    "name": "broken-tls",
+    "namespace": "web",
+    "resourceVersion": "100",
+    "uid": "00000000-0000-4000-8000-000000000010"
+   },
+   "type": "kubernetes.io/tls",
+   "data": {
+    "tls.crt": "bm90IGEgY2VydGlmaWNhdGU=",
+    "tls.key": "a2V5a2V5a2V5a2V5a2V5a2V5a2V5a2V5"
+   },
+   "kind": "Secret",
+   "apiVersion": "v1"
+  }
+ }
+}

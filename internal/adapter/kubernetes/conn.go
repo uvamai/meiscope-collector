@@ -201,10 +201,32 @@ func (serviceAccountSource) Get(_ context.Context, _ string) (credential.Secret,
 	return credential.NewSecret(strings.TrimSpace(string(b))), nil
 }
 
-// token resolves the bearer token for this sync.
-func (a *Adapter) token(ctx context.Context, cfg adapter.Config) (credential.Secret, error) {
+// errNoToken is returned when no bearer_token is configured and the pod's
+// service-account token may not be used.
+var errNoToken = errors.New("credentials.bearer_token is required unless in_cluster=true with the in-cluster API server (" + DefaultInClusterServer + ")")
+
+// inClusterServer reports whether u is the in-cluster API server name. The
+// pod's service-account token is sent to nothing else.
+func inClusterServer(u *url.URL) bool {
+	if u == nil || u.Scheme != "https" || (u.Port() != "" && u.Port() != "443") || (u.Path != "" && u.Path != "/") {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSuffix(u.Hostname(), ".")) {
+	case "kubernetes.default.svc", "kubernetes.default.svc.cluster.local":
+		return true
+	}
+	return false
+}
+
+// token resolves the bearer token for this sync: the configured
+// bearer_token, or the pod's service-account token only with in_cluster=true
+// and the in-cluster API server (whose CA is the pod's, resolveConn).
+func (a *Adapter) token(ctx context.Context, cfg adapter.Config, c conn) (credential.Secret, error) {
 	if _, ok := cfg.Credentials["bearer_token"]; ok {
 		return cfg.Credential(ctx, a.env.Creds, "bearer_token")
+	}
+	if !isTrue(cfg, "in_cluster") || !inClusterServer(c.server) {
+		return credential.Secret{}, errNoToken
 	}
 	return serviceAccountSource{}.Get(ctx, "")
 }
@@ -229,12 +251,10 @@ func (a *Adapter) httpClient(c conn) *http.Client {
 	// A fresh TLS configuration: no client certificate is ever presented to
 	// the API server, and its certificate is always verified.
 	t.TLSClientConfig = &tls.Config{RootCAs: c.pool, MinVersion: tls.VersionTLS12}
-	return &http.Client{Transport: t, Timeout: base.Timeout, CheckRedirect: noRedirect}
+	// adapter.Getter refuses redirects too, so the bearer token never follows
+	// one to another host.
+	return &http.Client{Transport: t, Timeout: base.Timeout, CheckRedirect: adapter.NoRedirect}
 }
-
-// noRedirect refuses redirects so the bearer token never follows one to
-// another host.
-func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // isTrue reads a validated boolean setting.
 func isTrue(cfg adapter.Config, name string) bool {

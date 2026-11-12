@@ -1,0 +1,55 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/apis/networking.k8s.io/v1/namespaces/web/ingresses",
+  "query": "limit=2"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "kind": "IngressList",
+   "apiVersion": "networking.k8s.io/v1",
+   "metadata": {
+    "resourceVersion": "5001"
+   },
+   "items": [
+    {
+     "metadata": {
+      "name": "www",
+      "namespace": "web"
+     },
+     "spec": {
+      "tls": [
+       {
+        "hosts": [
+         "www.example.test",
+         "Example.test"
+        ],
+        "secretName": "www-tls"
+       }
+      ]
+     }
+    },
+    {
+     "metadata": {
+      "name": "cfg",
+      "namespace": "web"
+     },
+     "spec": {
+      "tls": [
+       {
+        "hosts": [
+         "cfg.example.test"
+        ],
+        "secretName": "app-config"
+       }
+      ]
+     }
+    }
+   ]
+  }
+ }
+}

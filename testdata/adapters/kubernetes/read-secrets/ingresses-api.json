@@ -1,0 +1,21 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/apis/networking.k8s.io/v1/namespaces/api/ingresses",
+  "query": "limit=2"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "kind": "IngressList",
+   "apiVersion": "networking.k8s.io/v1",
+   "metadata": {
+    "resourceVersion": "5001"
+   },
+   "items": []
+  }
+ }
+}
