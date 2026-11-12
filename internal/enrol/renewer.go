@@ -2,6 +2,8 @@ package enrol
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -128,8 +130,40 @@ func (r *Renewer) renew(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := checkRenewedValidity(cred, r.Clock.Now(), r.Store.NotAfter()); err != nil {
+		return err
+	}
 	if err := r.Store.Replace(key, cred); err != nil {
 		return fmt.Errorf("keep the renewed certificate: %w", err)
+	}
+	return nil
+}
+
+// ErrRenewedValidity refuses a renewed certificate that is not valid now or
+// does not outlive the current one; the current certificate stays in use and
+// renewal is retried with back-off.
+var ErrRenewedValidity = errors.New("the renewed certificate is refused")
+
+// checkRenewedValidity accepts the leaf of cred only when
+// NotBefore <= now < NotAfter and its NotAfter is later than current's: a
+// renewal must never swap in a certificate that is not yet valid, already
+// expired, or shorter-lived than the one it replaces.
+func checkRenewedValidity(cred identity.Credentials, now, current time.Time) error {
+	b, _ := pem.Decode([]byte(cred.CertificateChain))
+	if b == nil || b.Type != "CERTIFICATE" {
+		return fmt.Errorf("%w: no certificate in the answer", ErrRenewedValidity)
+	}
+	leaf, err := x509.ParseCertificate(b.Bytes)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrRenewedValidity, err)
+	}
+	switch {
+	case now.Before(leaf.NotBefore):
+		return fmt.Errorf("%w: not valid before %s, now is %s (check this host's clock)", ErrRenewedValidity, leaf.NotBefore.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
+	case !now.Before(leaf.NotAfter):
+		return fmt.Errorf("%w: it expired at %s", ErrRenewedValidity, leaf.NotAfter.UTC().Format(time.RFC3339))
+	case !leaf.NotAfter.After(current):
+		return fmt.Errorf("%w: it expires at %s, not later than the current certificate (%s)", ErrRenewedValidity, leaf.NotAfter.UTC().Format(time.RFC3339), current.UTC().Format(time.RFC3339))
 	}
 	return nil
 }
