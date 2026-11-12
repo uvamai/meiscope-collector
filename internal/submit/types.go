@@ -42,6 +42,12 @@ const (
 	// KindFile is a keystore or certificate file on a host, read by an
 	// adapter (PROPOSED in contract 0.5.0).
 	KindFile = "file"
+
+	// KindCloudResource is a certificate or a certificate binding held by a
+	// cloud provider's API (ACM, a load balancer listener, Cloudflare), read
+	// by an adapter (PROPOSED in contract 0.10.0, api/proposed; not adopted
+	// by the core). Sent only with MEISCOPE_FEATURE_CLOUD_RESOURCE_V1.
+	KindCloudResource = "cloud_resource"
 )
 
 // MaxBatch is the largest batch the core accepts (ObservationBatch.maxItems).
@@ -83,6 +89,26 @@ type Target struct {
 	Store string `json:"store,omitempty"`
 	// Path is the file path of a file target (PROPOSED 0.5.0).
 	Path string `json:"path,omitempty"`
+	// Cloud is the locator of a cloud_resource target (PROPOSED 0.10.0).
+	Cloud *CloudResource `json:"cloud,omitempty"`
+}
+
+// CloudResource locates a resource in a cloud provider's API (schema
+// CloudResource, PROPOSED 0.10.0). It is provider-neutral: AWS, Azure,
+// Cloudflare and others fill the same fields.
+type CloudResource struct {
+	// Provider is the cloud, for example "aws", "azure" or "cloudflare".
+	Provider string `json:"provider"`
+	// Service is the provider's resource type, for example "acm",
+	// "elbv2_listener", "certificate_pack" or "key_vault_certificate".
+	Service string `json:"service"`
+	// ResourceID is the provider's identifier: an ARN, an Azure resource ID,
+	// a Cloudflare object ID.
+	ResourceID string `json:"resource_id"`
+	// Region is the provider region; empty for global resources.
+	Region string `json:"region,omitempty"`
+	// Account is the account, subscription or zone the resource belongs to.
+	Account string `json:"account,omitempty"`
 }
 
 // TLSParams are negotiated connection parameters (probe observations).
@@ -175,6 +201,76 @@ type AdapterEvidence struct {
 	File        *FileDigest          `json:"file,omitempty"`
 	Custody     *Custody             `json:"custody,omitempty"`
 	Findings    []Finding            `json:"findings,omitempty"`
+
+	// The fields below are PROPOSED in contract 0.10.0 (cloud resources).
+
+	// Hostnames are the DNS names the source says the certificate or
+	// endpoint serves (subject alternative names, edge hostnames).
+	Hostnames []string `json:"hostnames,omitempty"`
+	// Bindings link a certificate to the resources that use it (on a
+	// certificate observation) or an endpoint to the certificates it
+	// presents (on a listener observation).
+	Bindings []Binding `json:"bindings,omitempty"`
+	// Renewal is what the source proves about who renews the certificate.
+	Renewal *Renewal `json:"renewal,omitempty"`
+	// CloudCertificate is the provider's metadata of a certificate whose
+	// body the API does not return (so there is no served_chain or sha1).
+	CloudCertificate *CloudCertificate `json:"cloud_certificate,omitempty"`
+	// Endpoint describes a listener: its DNS name, port and protocol.
+	Endpoint *Endpoint `json:"endpoint,omitempty"`
+}
+
+// Renewal modes (schema Renewal.mode, PROPOSED 0.10.0). The core maps
+// external_automated to renewal_mode external_automated.
+const (
+	RenewalExternalAutomated = "external_automated"
+	RenewalManual            = "manual"
+	RenewalUnknown           = "unknown"
+)
+
+// Binding is one end of a certificate-to-resource link (schema Binding,
+// PROPOSED 0.10.0).
+type Binding struct {
+	ResourceID string   `json:"resource_id"`
+	Service    string   `json:"service,omitempty"`
+	Region     string   `json:"region,omitempty"`
+	Hostnames  []string `json:"hostnames,omitempty"`
+	Port       int      `json:"port,omitempty"`
+	Protocol   string   `json:"protocol,omitempty"`
+	IsDefault  *bool    `json:"is_default,omitempty"`
+}
+
+// Renewal is renewal evidence (schema Renewal, PROPOSED 0.10.0).
+type Renewal struct {
+	Mode string `json:"mode"`
+	// ManagedBy names the system that renews, for example "aws_acm".
+	ManagedBy string `json:"managed_by,omitempty"`
+	// Status is the source's renewal status, verbatim (for example ACM's
+	// RenewalSummary.RenewalStatus).
+	Status string `json:"status,omitempty"`
+	// Eligibility is the source's renewal eligibility, verbatim.
+	Eligibility string `json:"eligibility,omitempty"`
+}
+
+// CloudCertificate is provider metadata of a certificate (schema
+// CloudCertificate, PROPOSED 0.10.0). Public data only.
+type CloudCertificate struct {
+	ID        string     `json:"id"`
+	Type      string     `json:"type,omitempty"`
+	Status    string     `json:"status,omitempty"`
+	Issuer    string     `json:"issuer,omitempty"`
+	Serial    string     `json:"serial,omitempty"`
+	NotBefore *time.Time `json:"not_before,omitempty"`
+	NotAfter  *time.Time `json:"not_after,omitempty"`
+}
+
+// Endpoint is a listener's address (schema Endpoint, PROPOSED 0.10.0).
+type Endpoint struct {
+	DNSName  string `json:"dns_name,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	// Scheme is internet-facing or internal where the provider says.
+	Scheme string `json:"scheme,omitempty"`
 }
 
 // Finding codes (PROPOSED 0.5.0).

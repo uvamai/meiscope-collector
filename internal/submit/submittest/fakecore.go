@@ -38,6 +38,13 @@ func ProposedSpecPath() string {
 	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "proposed", "collector-0.5.0-proposed.yaml")
 }
 
+// CloudProposedSpecPath returns the path of the proposed contract 0.10.0
+// (cloud_resource targets), which the core has not adopted (api/proposed).
+func CloudProposedSpecPath() string {
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "proposed", "collector-0.10.0-proposed.yaml")
+}
+
 // Core is a fake core. Each observations request must be gzip JSON that
 // validates as an ObservationBatch; an invalid request gets 400 and is
 // recorded in Errors. Observations that break a rule the contract states in
@@ -68,6 +75,9 @@ func NewCore() (*Core, error) { return NewCoreWithSpec(SpecPath()) }
 
 // NewProposedCore starts a fake core for the proposed contract 0.5.0.
 func NewProposedCore() (*Core, error) { return NewCoreWithSpec(ProposedSpecPath()) }
+
+// NewCloudProposedCore starts a fake core for the proposed contract 0.10.0.
+func NewCloudProposedCore() (*Core, error) { return NewCoreWithSpec(CloudProposedSpecPath()) }
 
 // NewCoreWithSpec starts a fake core validating against the contract file at
 // path.
@@ -201,11 +211,12 @@ func (c *Core) handle(w http.ResponseWriter, r *http.Request) {
 // observation holds the fields the prose rules of collector.yaml refer to.
 type observation struct {
 	Target struct {
-		Kind  string `json:"kind"`
-		SNI   string `json:"sni"`
-		Port  int    `json:"port"`
-		Store string `json:"store"`
-		Path  string `json:"path"`
+		Kind  string    `json:"kind"`
+		SNI   string    `json:"sni"`
+		Port  int       `json:"port"`
+		Store string    `json:"store"`
+		Path  string    `json:"path"`
+		Cloud *struct{} `json:"cloud"`
 	} `json:"target"`
 	Method      string   `json:"method"`
 	Outcome     string   `json:"outcome"`
@@ -216,6 +227,10 @@ type observation struct {
 	Adapter *struct {
 		Certificate *struct{} `json:"certificate"`
 		File        *struct{} `json:"file"`
+		// 0.10.0-proposed (cloud_resource).
+		CloudCertificate *struct{}  `json:"cloud_certificate"`
+		Endpoint         *struct{}  `json:"endpoint"`
+		Bindings         []struct{} `json:"bindings"`
 	} `json:"adapter"`
 }
 
@@ -246,6 +261,14 @@ func rejection(o observation) (code, msg string) {
 		return "invalid_target", "a store target needs store (0.9.0)"
 	case o.Target.Kind == "file" && o.Target.Path == "":
 		return "invalid_target", "a file target needs path (0.9.0)"
+	case o.Target.Cloud != nil && o.Target.Kind != "cloud_resource":
+		return "invalid_target", "cloud is allowed with kind cloud_resource only (0.10.0-proposed)"
+	case o.Target.Kind == "cloud_resource" && o.Method != "adapter":
+		return "invalid_target", "cloud_resource targets are read by method adapter only (0.10.0-proposed)"
+	case o.Target.Kind == "cloud_resource" && (o.Target.Port != 0 || o.Target.SNI != ""):
+		return "invalid_target", "cloud_resource targets have no port or sni (0.10.0-proposed)"
+	case o.Target.Kind == "cloud_resource" && o.Target.Cloud == nil:
+		return "invalid_target", "a cloud_resource target needs cloud (0.10.0-proposed)"
 	case o.Adapter != nil && o.Method != "adapter":
 		return "invalid_target", "adapter evidence is allowed with method adapter only (0.9.0)"
 	case o.Method == "adapter" && o.Adapter == nil:
@@ -254,6 +277,9 @@ func rejection(o observation) (code, msg string) {
 		return "invalid_target", "a store target needs adapter.certificate (0.9.0)"
 	case o.Target.Kind == "file" && o.Adapter.File == nil:
 		return "invalid_target", "a file target needs adapter.file (0.9.0)"
+	case o.Target.Kind == "cloud_resource" && o.Outcome == "reached" &&
+		o.Adapter.CloudCertificate == nil && o.Adapter.Endpoint == nil && len(o.Adapter.Bindings) == 0:
+		return "invalid_target", "a cloud_resource read without a certificate needs adapter.cloud_certificate, endpoint or bindings (0.10.0-proposed)"
 	case len(o.ServedChain) > 0 && o.Outcome != "cert_seen":
 		return "chain_outcome_mismatch", "served_chain must be present exactly when outcome is cert_seen"
 	case o.Outcome == "cert_seen" && len(o.ServedChain) == 0 && (o.Adapter == nil || o.Adapter.Certificate == nil):

@@ -1,0 +1,1125 @@
+openapi: 3.1.0
+info:
+  title: Meiscope collector API
+  version: 0.10.0-proposed
+  description: |
+    Collector surface of the Meiscope core (ADR-0005: REST over mTLS,
+    additive-only within /v1). The public collector repository vendors a copy
+    of this file.
+    Every request is authenticated by the collector's mTLS client certificate,
+    which identifies its tenant and collector record; no request body names a
+    tenant. The one exception is POST /enrol, which a collector calls before
+    it has a certificate: it presents a one-time enrolment token instead.
+    0.9.0 (D1b, additive): collector enrolment, certificate renewal and
+    signed scope delivery; local-store observations (O-07: target kinds
+    store and file, adapter evidence), rebased from the collector's
+    0.5.0-proposed. The core accepts local-store observations only when
+    MEISCOPE_FEATURE_LOCAL_STORE_V1 is on (default on only in the demo
+    profile); otherwise they are rejected with invalid_target and a message
+    starting "local_store_disabled:".
+
+    PROPOSAL (collector WP1.2, NOT adopted by the core): this file is the
+    core's 0.9.0 contract plus additive changes for adapters that read cloud
+    provider APIs (AWS ACM, Elastic Load Balancing, IAM server certificates,
+    Cloudflare; also meant for Azure). api/collector.yaml stays
+    byte-identical to the core's file; the core adopts this proposal in its
+    own repository. The additions are: target kind cloud_resource and the
+    target field cloud (CloudResource: provider, service, resource_id,
+    region, account); AdapterEvidence properties hostnames, bindings
+    (Binding), renewal (Renewal), cloud_certificate (CloudCertificate) and
+    endpoint (Endpoint). Problems are rejected with the existing code
+    invalid_target (no new rejection code).
+    Rules for kind cloud_resource (stated here because the schema cannot
+    express them): method adapter only; no port and no sni; cloud is
+    required, and cloud is allowed with kind cloud_resource only; adapter
+    evidence is required. host is the API host that was read (for example
+    acm.ap-southeast-2.amazonaws.com or api.cloudflare.com). Outcome
+    cert_seen needs served_chain (the public certificate and chain the API
+    returned) or adapter.certificate; outcome reached is a resource read
+    without a certificate body and needs adapter.cloud_certificate or
+    adapter.endpoint or adapter.bindings.
+    renewal.mode external_automated is set only when the source proves that
+    it renews the certificate itself (ACM-issued certificates eligible for
+    managed renewal, Cloudflare-managed certificate packs); the core sets
+    the certificate's renewal_mode from it.
+    Compatibility: additive within /v1. The core's 0.9.0 ingest rejects the
+    unknown kind and the closed Target property cloud, so the core must
+    adopt this version before a collector sends any of it; the collector
+    keeps it behind MEISCOPE_FEATURE_CLOUD_RESOURCE_V1 (off by default). The
+    new objects are open (unknown properties ignored), except CloudResource,
+    which is a locator and part of target identity.
+    No schema in this file may carry private-key material (NFR-SEC-002):
+    observations carry certificates, never keys.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: /collector/v1
+tags:
+  - name: health
+    description: Liveness
+  - name: observations
+    description: Observation submission
+  - name: ct
+    description: Inputs of Certificate Transparency ingestion
+  - name: enrolment
+    description: Collector enrolment and client certificates
+  - name: scopes
+    description: Signed scan scopes
+paths:
+  /enrol:
+    post:
+      operationId: postCollectorEnrol
+      summary: Redeem a one-time enrolment token for a collector certificate
+      description: |
+        Needs no client certificate (the collector has none yet). The
+        collector generates its own key pair and sends only a certificate
+        signing request; the core never receives, stores or returns a
+        collector private key, and refuses (400) any request that carries
+        private-key material.
+        The CSR (PEM) must be signed by its own key (ECDSA P-256 or P-384,
+        Ed25519, RSA 3072 or 4096) and ask for nothing: an empty subject, no
+        subject alternative names, no extensions, no attributes. The core
+        decides the certificate: subject CN = the collector id, one URI SAN
+        urn:meiscope:collector:<tenant id>:<collector id>, client
+        authentication only, valid 30 days. Renew at two thirds of the
+        lifetime with POST /certificate.
+        The token is single use and expires 24 hours after it was created; an
+        invalid, expired or used token is 401 whatever the reason (the reason
+        is in the tenant's audit log). A refused CSR or a failed issuance
+        leaves the token unused. Every redemption and refusal is audited.
+      tags: [enrolment]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrolmentRequest"
+      responses:
+        "201":
+          description: Enrolled; the collector stores the certificate and pins the CA bundle and scope-signing keys.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectorCredentials"
+        "400":
+          description: The body or the CSR is refused, or it carries private-key material.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "401":
+          description: The token is invalid, expired or already used.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: The tenant already has a collector of the token's name; the token stays unused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "413":
+          description: The body exceeds 64 KiB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: Enrolment is not configured on this core, or the CA did not issue; retry later.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /certificate:
+    post:
+      operationId: postCollectorCertificate
+      summary: Renew the collector's client certificate
+      description: |
+        Authenticated by the collector's current, unrevoked client
+        certificate (mTLS). Same CSR rules as POST /enrol, except that the
+        subject may also be exactly CN = the collector id. A new key is
+        recommended. The previous certificate stays valid until it expires
+        or the collector is revoked. The response also carries the current
+        scope-signing keys, so a key rotation reaches enrolled collectors
+        without re-enrolment.
+      tags: [enrolment]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CertificateRenewalRequest"
+      responses:
+        "201":
+          description: The new certificate.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectorCredentials"
+        "400":
+          description: The body or the CSR is refused, or it carries private-key material.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "401":
+          description: Not authenticated by a valid, unrevoked collector certificate.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "413":
+          description: The body exceeds 64 KiB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: Certificate issuance is not configured, or the CA did not issue; retry later.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /scopes:
+    get:
+      operationId: listCollectorScopes
+      summary: The signed scan scopes the collector may run
+      description: |
+        Authenticated by mTLS. Each scope is a payload (a JSON object, see
+        ScopePayload) and an Ed25519 signature over exactly the payload's
+        bytes as they appear in this response, made with the key named by
+        key_id (one of the keys pinned at enrolment). The collector verifies
+        before decoding, refuses unknown fields, and refuses a version lower
+        than the last it accepted for the id, or the same version with other
+        bytes. version rises whenever the payload changes.
+      tags: [scopes]
+      responses:
+        "200":
+          description: The tenant's current scopes (possibly none).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScopeList"
+        "401":
+          description: The collector is not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          description: The scopes could not be read; retry with backoff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: Scope signing is not configured on this core.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /owned-domains:
+    get:
+      operationId: listCollectorOwnedDomains
+      summary: The tenant's owned domains, for Certificate Transparency polling
+      description: |
+        The domains the CT poller queries issuance for (FR-DISC-020). Each
+        domain covers itself and every name below it.
+      tags: [ct]
+      responses:
+        "200":
+          description: The owned domains, sorted by name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnedDomainList"
+        "401":
+          description: The collector is not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          description: The list could not be read; retry with backoff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /healthz:
+    get:
+      operationId: getCollectorHealthz
+      summary: Liveness and build information of the collector surface
+      tags: [health]
+      responses:
+        "200":
+          description: The collector surface is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /observations:
+    post:
+      operationId: postObservations
+      summary: Submit a batch of observations
+      description: |
+        Appends the observations and schedules their ingest. The body may be
+        sent with `Content-Encoding: gzip` (recommended); at most 10 MiB on
+        the wire and 64 MiB decompressed.
+        Idempotent: an observation with the same target, method and
+        observed_at as one already stored from this collector is counted as a
+        duplicate and changes nothing, so a batch can be retried safely.
+        Observations that fail validation are listed in `rejected`; the rest
+        of the batch is still accepted.
+      tags: [observations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ObservationBatch"
+      responses:
+        "202":
+          description: The batch was stored; accepted observations will be ingested.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObservationBatchResult"
+        "400":
+          description: The body is not a valid observation batch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "401":
+          description: The collector is not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "413":
+          description: The body exceeds the size limits.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "415":
+          description: Unsupported content type or content encoding.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "429":
+          description: |
+            The tenant reached its ingest rate limit (observations per minute)
+            or its daily observation quota (per UTC day). Nothing of the batch
+            was stored; resubmit it unchanged after Retry-After seconds. The
+            detail names the limit.
+          headers:
+            Retry-After:
+              description: Seconds until the batch can be resubmitted.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          description: The batch could not be stored; retry with backoff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+components:
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, version, commit]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+          description: Always "ok" when the process can answer.
+        version:
+          type: string
+          description: Semantic version of the core build, or "dev".
+        commit:
+          type: string
+          description: Source commit of the core build, or "none".
+    ObservationBatch:
+      type: object
+      additionalProperties: false
+      required: [observations]
+      properties:
+        observations:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/Observation"
+    Observation:
+      type: object
+      additionalProperties: false
+      description: One attempt to read a certificate from a target, with its outcome (FR-DISC-014).
+      required: [target, method, observed_at, outcome]
+      properties:
+        target:
+          $ref: "#/components/schemas/Target"
+        method:
+          type: string
+          enum: [probe, adapter, ct, import]
+          description: How the observation was made.
+        observed_at:
+          type: string
+          format: date-time
+          description: |
+            When the attempt was made, by the collector's clock. At most five
+            minutes ahead of the core's clock.
+        outcome:
+          type: string
+          enum: [reached, refused, timeout, tls_failed, cert_seen]
+          description: |
+            reached: connected, no certificate offered; refused: connection
+            refused; timeout: no answer; tls_failed: the TLS handshake failed;
+            cert_seen: a certificate was served (served_chain is then required).
+        served_chain:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: |
+            The certificates exactly as the target served them, leaf first,
+            each DER-encoded and base64-encoded. Present exactly when outcome
+            is cert_seen.
+          items:
+            type: string
+            format: byte
+            maxLength: 87384
+        tls:
+          $ref: "#/components/schemas/TLSParams"
+        ct_entry:
+          $ref: "#/components/schemas/CTEntry"
+        adapter:
+          $ref: "#/components/schemas/AdapterEvidence"
+    AdapterEvidence:
+      type: object
+      additionalProperties: true
+      description: |
+        0.9.0 (local store, O-07). What an adapter read from a system the
+        customer already runs, stored as adapter evidence. Required with, and
+        allowed only with, method adapter and a store, file or (0.10.0-proposed)
+        cloud_resource target. Unknown
+        properties of this object and of the objects below it are accepted
+        and ignored, so the collector can add fields; known properties are
+        validated. When the source reports certificate metadata but not the
+        certificate itself (the osquery certificates table), certificate
+        carries it and outcome cert_seen is allowed without served_chain. A
+        file target carries file and outcome reached. Never carries private
+        keys, keystore passwords or key-alias secrets.
+      required: [source]
+      properties:
+        source:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,31}$"
+          description: The adapter that read the record, for example "osquery".
+        certificate:
+          $ref: "#/components/schemas/CertificateMetadata"
+        file:
+          $ref: "#/components/schemas/FileDigest"
+        custody:
+          $ref: "#/components/schemas/Custody"
+        findings:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/Finding"
+        hostnames:
+          type: array
+          maxItems: 1000
+          description: 0.10.0-proposed. DNS names the source says the certificate or endpoint serves.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 253
+        bindings:
+          type: array
+          maxItems: 1000
+          description: |
+            0.10.0-proposed. On a certificate: the resources that use it (for
+            example ACM's InUseBy). On a listener: the certificates it presents.
+          items:
+            $ref: "#/components/schemas/Binding"
+        renewal:
+          $ref: "#/components/schemas/Renewal"
+        cloud_certificate:
+          $ref: "#/components/schemas/CloudCertificate"
+        endpoint:
+          $ref: "#/components/schemas/Endpoint"
+    Binding:
+      type: object
+      additionalProperties: true
+      description: 0.10.0-proposed. One end of a certificate-to-resource link. Unknown properties are ignored.
+      required: [resource_id]
+      properties:
+        resource_id:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        service:
+          type: string
+          maxLength: 64
+        region:
+          type: string
+          maxLength: 64
+        hostnames:
+          type: array
+          maxItems: 1000
+          items:
+            type: string
+            minLength: 1
+            maxLength: 253
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        protocol:
+          type: string
+          maxLength: 32
+        is_default:
+          type: boolean
+    Renewal:
+      type: object
+      additionalProperties: true
+      description: |
+        0.10.0-proposed. What the source proves about who renews the
+        certificate. Unknown properties are ignored.
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [external_automated, manual, unknown]
+          description: |
+            external_automated: the source renews it itself (ACM managed
+            renewal, Cloudflare-managed packs, Key Vault auto-renew); the core
+            sets renewal_mode external_automated. manual: the source holds an
+            uploaded or imported certificate it does not renew. unknown: the
+            source does not say.
+        managed_by:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          description: The renewing system, for example aws_acm or cloudflare.
+        status:
+          type: string
+          maxLength: 64
+          description: The source's renewal status, verbatim.
+        eligibility:
+          type: string
+          maxLength: 64
+          description: The source's renewal eligibility, verbatim.
+    CloudCertificate:
+      type: object
+      additionalProperties: true
+      description: |
+        0.10.0-proposed. Provider metadata of a certificate whose body the API
+        does not return (so there is no served_chain and no sha1). Public
+        data only. Unknown properties are ignored.
+      required: [id]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        type:
+          type: string
+          maxLength: 64
+        status:
+          type: string
+          maxLength: 64
+        issuer:
+          type: string
+          maxLength: 4096
+        serial:
+          type: string
+          maxLength: 128
+        not_before:
+          type: string
+          format: date-time
+        not_after:
+          type: string
+          format: date-time
+    Endpoint:
+      type: object
+      additionalProperties: true
+      description: 0.10.0-proposed. A listener's address as the provider reports it. Unknown properties are ignored.
+      properties:
+        dns_name:
+          type: string
+          maxLength: 253
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        protocol:
+          type: string
+          maxLength: 32
+        scheme:
+          type: string
+          maxLength: 32
+    CertificateMetadata:
+      type: object
+      additionalProperties: true
+      description: 0.9.0. Certificate fields as the source reports them. Public data only. Unknown properties are ignored.
+      required: [sha1]
+      properties:
+        sha1:
+          type: string
+          pattern: "^[0-9a-f]{40}$"
+          description: SHA-1 of the DER certificate, lower-case hex (the fingerprint osquery reports).
+        serial:
+          type: string
+          maxLength: 128
+        subject:
+          type: string
+          maxLength: 4096
+        issuer:
+          type: string
+          maxLength: 4096
+        common_name:
+          type: string
+          maxLength: 1024
+        not_before:
+          type: string
+          format: date-time
+        not_after:
+          type: string
+          format: date-time
+        ca:
+          type: boolean
+        self_signed:
+          type: boolean
+        key_algorithm:
+          type: string
+          maxLength: 64
+        key_strength:
+          type: string
+          maxLength: 64
+          description: Size of the certificate's public key in bits.
+        signing_algorithm:
+          type: string
+          maxLength: 64
+        subject_key_id:
+          type: string
+          maxLength: 128
+        authority_key_id:
+          type: string
+          maxLength: 128
+    FileDigest:
+      type: object
+      additionalProperties: true
+      description: 0.9.0. A keystore or certificate file's metadata and digest, never its contents. Unknown properties are ignored.
+      required: [sha256]
+      properties:
+        sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        mtime:
+          type: string
+          format: date-time
+          description: Last modification time of the file.
+        owner:
+          type: string
+          maxLength: 256
+          description: The file owner as the operating system reports it (a uid, or a Windows SID).
+        permissions:
+          type: string
+          maxLength: 64
+          description: The file permissions as the operating system reports them, for example the octal mode "0640".
+        store_type:
+          type: string
+          enum: [jks, pkcs12, pem, nss, other]
+          description: Kind of store the file is, from its extension.
+    Custody:
+      type: object
+      additionalProperties: true
+      description: 0.9.0. Custody flags where the source exposes them, else unknown. Unknown properties are ignored.
+      required: [key_custody]
+      properties:
+        key_custody:
+          type: string
+          enum: [present, absent, unknown]
+          description: Whether the store holds a key pair for the certificate. Never the key itself.
+    Finding:
+      type: object
+      additionalProperties: true
+      description: |
+        0.9.0. Something the adapter could not do and reports instead of
+        skipping silently. Unknown properties are ignored.
+      required: [code]
+      properties:
+        code:
+          type: string
+          enum: [keystore_not_parsed]
+          description: |
+            keystore_not_parsed: the file is a keystore container (.p12, .pfx,
+            .jks or .kdb) whose content the collector does not parse. It may
+            or may not be password-protected; the collector never opens it
+            and never guesses, defaults or brute-forces passwords. The finding
+            carries the file path (target.path) and size (adapter.file.size)
+            only.
+    CTEntry:
+      type: object
+      additionalProperties: false
+      description: |
+        Where a ct observation's certificate was found, stored as ct_entry
+        evidence. Allowed with method ct only. The certificate itself (the
+        logged certificate or precertificate, leaf first, then the chain the
+        entry carried) is served_chain.
+      required: [source]
+      properties:
+        source:
+          type: string
+          enum: [log, cert_spotter, crt_sh]
+          description: A CT log read directly, or the Cert Spotter or crt.sh search service.
+        log_id:
+          type: string
+          format: byte
+          maxLength: 44
+          description: The log's ID (SHA-256 of its public key, RFC 6962 §3.2), base64.
+        entry_index:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Index of the entry in the log.
+        timestamp:
+          type: string
+          format: date-time
+          description: The entry's timestamp (the SCT timestamp, RFC 6962 §3.2).
+    Target:
+      type: object
+      additionalProperties: false
+      required: [kind, host]
+      properties:
+        kind:
+          type: string
+          enum: [host_port_sni, ct_log, store, file, cloud_resource]
+          description: |
+            Locator kind. host_port_sni: a network endpoint. ct_log: a
+            Certificate Transparency log or search service that was read
+            (method ct only, outcome cert_seen, no sni); every certificate
+            read from it is its own target. 0.9.0: store: an OS or
+            application certificate store on host (store required, method
+            adapter only); file: a keystore or certificate file on host (path
+            required, method adapter only). port is required for
+            host_port_sni and ct_log and absent for store and file. Other
+            kinds (cloud resource) are added additively. 0.10.0-proposed:
+            cloud_resource: a certificate or binding read from a cloud
+            provider's API (cloud required, method adapter only, no port or
+            sni; host is the API host read).
+        host:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: |
+            Host name or IP address that was connected to; for ct_log the host
+            name of the log or service (e.g. its API host).
+
+            Metadata-only mode (NFR-DATA-004): when the tenant is in
+            metadata-only mode, host (and sni) must be the hashed form
+            "h1:" + base32(HMAC-SHA-256(key, canonical host)), where the
+            base32 is RFC 4648 with the lower-case alphabet a-z2-7 and no
+            padding (exactly 55 characters, pattern ^h1:[a-z2-7]{52}$, in
+            canonical form: the 4 bits after the 256 hash bits are zero). The
+            canonical host is an IP address in canonical text form (IPv4
+            dotted decimal; IPv6 per RFC 5952, lower case) or a name in lower
+            case without a trailing dot. key is the tenant's masking key, at
+            least 32 random bytes, kept only in the collector configuration;
+            the core never receives it. Observations with a host or sni not
+            in this form are rejected with code invalid_target and a message
+            starting "host_not_masked:". In full mode
+            both clear and hashed hosts are accepted. Test vector: key
+            000102...1f (the 32 bytes 0x00..0x1f), host "www.example.com" ->
+            "h1:4qf5a2mrnovkwma6up63lma76w37xpkmkjff74co5s5eewiv7zbq".
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: Required for host_port_sni and ct_log; absent for store and file.
+        sni:
+          type: string
+          maxLength: 253
+          description: |
+            Server name sent in the TLS ClientHello; empty or absent when none
+            was sent. In metadata-only mode, the hashed form described under
+            host (the hash of the name that was sent).
+        store:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: |
+            0.9.0. Store locator for kind store, slash-separated:
+            "<platform>/<location>/<store>", for example
+            "windows/LocalMachine/Personal" or "posix/system".
+        path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: 0.9.0. Absolute file path on host for kind file (or the file a store entry was read from).
+        cloud:
+          $ref: "#/components/schemas/CloudResource"
+    CloudResource:
+      type: object
+      additionalProperties: false
+      description: |
+        0.10.0-proposed. Locator of a resource in a cloud provider's API, for
+        kind cloud_resource only. Provider-neutral: one shape for AWS, Azure,
+        Cloudflare and others. Part of target identity, so closed.
+      required: [provider, service, resource_id]
+      properties:
+        provider:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,31}$"
+          description: The cloud, for example aws, azure, gcp or cloudflare.
+        service:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          description: |
+            The provider's resource type, for example acm, elbv2_listener,
+            elb_listener, iam_server_certificate, certificate_pack,
+            custom_certificate, origin_ca_certificate, key_vault_certificate.
+        resource_id:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: The provider's identifier (an ARN, an Azure resource ID, a Cloudflare object ID).
+        region:
+          type: string
+          maxLength: 64
+          description: The provider region; absent for global resources.
+        account:
+          type: string
+          maxLength: 128
+          description: The account, subscription or zone that holds the resource.
+    TLSParams:
+      type: object
+      additionalProperties: false
+      description: Negotiated connection parameters, stored as tls_params evidence.
+      properties:
+        version:
+          type: string
+          description: Negotiated protocol version, e.g. "TLS 1.3".
+        cipher_suite:
+          type: string
+          description: Negotiated cipher suite name.
+        alpn:
+          type: string
+          description: Negotiated ALPN protocol.
+        ocsp_stapled:
+          type: boolean
+          description: Whether an OCSP response was stapled.
+        protocol:
+          type: string
+          description: Application protocol, e.g. "https", "smtp-starttls", "ldaps".
+        plugin:
+          type: string
+          description: Collector plugin that made the attempt.
+    ObservationBatchResult:
+      type: object
+      additionalProperties: false
+      required: [accepted, duplicates, rejected]
+      properties:
+        accepted:
+          type: integer
+          description: Observations stored by this request.
+        duplicates:
+          type: integer
+          description: Observations already stored by an earlier request.
+        rejected:
+          type: array
+          items:
+            $ref: "#/components/schemas/Rejection"
+    Rejection:
+      type: object
+      additionalProperties: false
+      required: [index, code, message]
+      properties:
+        index:
+          type: integer
+          description: Position of the observation in the batch.
+        code:
+          type: string
+          description: |
+            Why the observation was refused. The set of codes grows
+            (x-extensible-enum): a client must accept a code it does not
+            know, count the observation as rejected and not resend it.
+          x-extensible-enum:
+            - invalid_target
+            - invalid_method
+            - invalid_outcome
+            - invalid_observed_at
+            - observed_at_in_future
+            - invalid_served_chain
+            - chain_outcome_mismatch
+            - invalid_ct_entry
+        message:
+          type: string
+    OwnedDomainList:
+      type: object
+      additionalProperties: false
+      required: [domains]
+      properties:
+        domains:
+          type: array
+          items:
+            type: string
+            description: A domain name, lower case, without a trailing dot.
+    EnrolmentRequest:
+      type: object
+      additionalProperties: false
+      required: [token, csr]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: The one-time enrolment token (mse1_...).
+        csr:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          description: PKCS#10 certificate signing request, PEM (one CERTIFICATE REQUEST block).
+    CertificateRenewalRequest:
+      type: object
+      additionalProperties: false
+      required: [csr]
+      properties:
+        csr:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          description: PKCS#10 certificate signing request, PEM.
+    CollectorCredentials:
+      type: object
+      additionalProperties: false
+      required: [collector_id, certificate_chain, ca_bundle, scope_signing_keys, not_after]
+      properties:
+        collector_id:
+          type: string
+          format: uuid
+        certificate_chain:
+          type: string
+          description: The issued certificate (leaf first, then the issuing CA certificates), PEM.
+        ca_bundle:
+          type: string
+          description: |
+            PEM trust anchors for the core's collector endpoint (mTLS); the
+            collector pins them for every later call.
+        scope_signing_keys:
+          type: array
+          minItems: 1
+          maxItems: 2
+          description: The active scope-signing keys, signing key first; the collector accepts a scope signed by any of them.
+          items:
+            $ref: "#/components/schemas/ScopeSigningKey"
+        not_after:
+          type: string
+          format: date-time
+          description: When the certificate expires; renew at two thirds of its lifetime.
+    ScopeSigningKey:
+      type: object
+      additionalProperties: false
+      required: [key_id, public_key]
+      properties:
+        key_id:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9._-]{0,63}$"
+        public_key:
+          type: string
+          format: byte
+          description: The 32-byte Ed25519 public key, base64.
+    ScopeList:
+      type: object
+      additionalProperties: false
+      required: [scopes]
+      properties:
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SignedScope"
+    SignedScope:
+      type: object
+      additionalProperties: false
+      required: [payload, signature, key_id]
+      properties:
+        payload:
+          $ref: "#/components/schemas/ScopePayload"
+        signature:
+          type: string
+          format: byte
+          description: Ed25519 signature over exactly the payload's bytes, base64.
+        key_id:
+          type: string
+          description: The scope-signing key that made the signature.
+    ScopePayload:
+      type: object
+      additionalProperties: false
+      description: |
+        What the core authorised (the collector's scope.Scope). Times are
+        RFC 3339 UTC. The collector refuses unknown fields.
+        Meiscope probes only the endpoints a person lists: targets are
+        explicit host:port pairs (from the scope file, CT names, AD CS,
+        osquery or Fleet bindings, appliance adapters or a CMDB/CSV import,
+        added by a person before the core signs). There is no CIDR expansion
+        and no port sweeping.
+        Reserved: the names cidrs, hosts and ports are not supported in v1.
+        The core never emits them and the collector refuses a payload that
+        contains any of them, even as an empty array.
+      required: [id, tenant_id, version, targets, scan_policy, authorisation, not_before, not_after]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Rises whenever the payload changes; never decreases for an id. One version always has the same bytes.
+        targets:
+          type: array
+          minItems: 1
+          maxItems: 20000
+          description: The endpoints to probe; no host:port appears twice.
+          items:
+            $ref: "#/components/schemas/ScopeTarget"
+        domains:
+          type: array
+          description: |
+            When present, every target host name and every names_by_ip name
+            equals one of these DNS names or lies below one.
+          items:
+            type: string
+        scan_policy:
+          $ref: "#/components/schemas/ScopeScanPolicy"
+        authorisation:
+          $ref: "#/components/schemas/ScopeAuthorisation"
+        not_before:
+          type: string
+          format: date-time
+        not_after:
+          type: string
+          format: date-time
+        rescan_interval_seconds:
+          type: integer
+          minimum: 60
+          maximum: 604800
+          description: Interval between scans of the scope (demo profile default 300, product default 86400).
+        names_by_ip:
+          type: object
+          description: |
+            Host names known for an address inside the scope (from earlier
+            observations' SNI and the certificates the address serves), for
+            SNI expansion: probe the address once per name. Every key is an
+            IP address that is itself a listed target; every name is a DNS
+            name (no wildcard, no IP literal), inside domains when domains
+            is set; at most 64 names per address.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+    ScopeTarget:
+      type: object
+      additionalProperties: false
+      required: [host, port]
+      properties:
+        host:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: One DNS name or one IP address; never a range, wildcard, list or CIDR.
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        protocol:
+          type: string
+          enum: [tls, smtp-starttls, imap-starttls, pop3-starttls, ldap-starttls, rdp, postgres, mysql, mssql]
+          description: How to reach TLS on the endpoint; absent means chosen by port.
+    ScopeScanPolicy:
+      type: object
+      additionalProperties: false
+      required: [deny, rate_per_24, burst, connect_timeout_seconds, windows, canary_percent, dry_run]
+      properties:
+        deny:
+          type: array
+          items:
+            type: string
+        rate_per_24:
+          type: number
+          description: New connections per second to one /24 (IPv4) or /64 (IPv6); (0, 10].
+        burst:
+          type: integer
+          minimum: 1
+          maximum: 10
+        connect_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 15
+        windows:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScopeWindow"
+        canary_percent:
+          type: number
+        dry_run:
+          type: boolean
+    ScopeWindow:
+      type: object
+      additionalProperties: false
+      required: [days, start, end]
+      properties:
+        days:
+          type: array
+          description: Weekdays, 0 = Sunday; empty means every day.
+          items:
+            type: integer
+            minimum: 0
+            maximum: 6
+        start:
+          type: string
+          pattern: "^[0-2][0-9]:[0-5][0-9]$"
+          description: UTC start, HH:MM.
+        end:
+          type: string
+          pattern: "^[0-2][0-9]:[0-5][0-9]$"
+          description: UTC end, HH:MM (before start wraps past midnight).
+    ScopeAuthorisation:
+      type: object
+      additionalProperties: false
+      required: [by, at, document]
+      properties:
+        by:
+          type: string
+        at:
+          type: string
+          format: date-time
+        document:
+          type: string
+    Problem:
+      type: object
+      description: Error body (RFC 9457 problem details, subset).
+      required: [title, status]
+      properties:
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
