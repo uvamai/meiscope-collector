@@ -262,6 +262,11 @@ func (sc *Scope) validate() error {
 		}
 	}
 	p := &sc.Policy
+	for i, e := range p.Deny {
+		if err := checkDenyEntry(e); err != nil {
+			return bad("deny entry %d: %v", i, err)
+		}
+	}
 	if p.RatePer24 <= 0 || p.RatePer24 > MaxRatePer24 {
 		return bad("rate_per_24 must be in (0, %v]", MaxRatePer24)
 	}
@@ -358,6 +363,43 @@ func underDomains(n string, domains []string) bool {
 // validName accepts a DNS name: labels of letters, digits, '-' and '_',
 // 1..63 bytes each, 253 bytes in all. Wildcards and IP literals are refused,
 // so SNI expansion can only ever name a host, never redirect the probe.
+// checkDenyEntry reports why a ScanPolicy.Deny entry would not be understood
+// by the runner, which skips what it cannot parse: a deny entry that is
+// silently ignored would let a host the customer excluded be probed, so the
+// whole scope is refused instead. Accepted forms (case-insensitive):
+// an IP address, a CIDR, an exact DNS name, or a DNS suffix written with or
+// without a leading dot ("example.com" or ".example.com"; both also deny
+// subdomains). Wildcards ("*.example.com"), bracketed IPv6, zones, URLs,
+// ports and empty entries are refused.
+func checkDenyEntry(e string) error {
+	s := strings.ToLower(strings.TrimSpace(e))
+	switch {
+	case s == "":
+		return errors.New("empty entry")
+	case strings.Contains(s, "/"):
+		if _, err := netip.ParsePrefix(s); err != nil {
+			return fmt.Errorf("%q is not a CIDR", e)
+		}
+		return nil
+	}
+	if a, err := netip.ParseAddr(s); err == nil {
+		if a.Zone() != "" {
+			return fmt.Errorf("%q: IPv6 zones are not supported", e)
+		}
+		return nil
+	}
+	n := strings.TrimPrefix(strings.TrimSuffix(s, "."), ".")
+	if !validName(n) {
+		return fmt.Errorf("%q is not an IP address, CIDR, DNS name or DNS suffix (wildcards are written as a suffix: .example.com)", e)
+	}
+	// A name whose last label is all digits and hyphens is a malformed
+	// address or range ("192.0.2.1-192.0.2.9"), never a real host name.
+	if last := n[strings.LastIndexByte(n, '.')+1:]; strings.Trim(last, "0123456789-") == "" {
+		return fmt.Errorf("%q looks like an IP address or range, which a deny list cannot hold; list addresses or a CIDR", e)
+	}
+	return nil
+}
+
 func validName(n string) bool {
 	if n == "" || len(n) > 253 || strings.HasSuffix(n, ".") {
 		return false
