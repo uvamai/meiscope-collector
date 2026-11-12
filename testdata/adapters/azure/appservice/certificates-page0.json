@@ -1,0 +1,37 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/subscriptions/11111111-2222-3333-4444-555555555555/providers/Microsoft.Web/certificates",
+  "query": "api-version=2023-12-01"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "value": [
+    {
+     "id": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-web/providers/Microsoft.Web/certificates/app-contoso-managed",
+     "name": "app-contoso-managed",
+     "type": "Microsoft.Web/certificates",
+     "location": "australiaeast",
+     "properties": {
+      "thumbprint": "122EA81C2E0C3ED45F7F20CA936902DC027C4662",
+      "expirationDate": "2027-05-31T14:04:38+00:00",
+      "issueDate": "2026-11-12T14:04:38+00:00",
+      "issuer": "Meiscope Synthetic Test CA",
+      "subjectName": "app.contoso.example.test",
+      "hostNames": [
+       "app.contoso.example.test"
+      ],
+      "cerBlob": "MIICYDCCAUigAwIBAgICEAIwDQYJKoZIhvcNAQELBQAwJTEjMCEGA1UEAwwaTWVpc2NvcGUgU3ludGhldGljIFRlc3QgQ0EwHhcNMjYxMTEyMTQwNDM4WhcNMjcwNTMxMTQwNDM4WjAjMSEwHwYDVQQDDBhhcHAuY29udG9zby5leGFtcGxlLnRlc3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARecFeu0V3vyMjNk7tzyAGhSkpigx3PRCvsNuU3d3+ANAkjKO07Noq6RRcKr033GPrWc3mM13TMo864SMHz4pmDo2cwZTAjBgNVHREEHDAaghhhcHAuY29udG9zby5leGFtcGxlLnRlc3QwHQYDVR0OBBYEFMpNs3Pak8ZOuwvqBNT1zi0uX2BdMB8GA1UdIwQYMBaAFIqJCFvn7MGH049wK7A8Gko+xwJKMA0GCSqGSIb3DQEBCwUAA4IBAQBb10AMiNuK5nq7ovoLpPWTRelDoBAPte7luMR8ZBXzs9GxGOHi/7aJ/bWTEZWn9YvAc8UBymtxa+Cc9q+luzvMjScgejB3DfvdFksN8wFHr5C+FMxxcNoHFbTT3zBsbu/E+P25cxNG7Z32cuYOn5ry5oqjLG56dYZe+1fMbRs280SjCzkMMiv9B4EtYQSLwt913R534pCGAfyFYL3V70CwRgV8I6zp1QkaWhBOB4Ex+SjE9HK78A8L2PZ+Ng43Kc9bNCImCD1e84V3inJ28kujAm8YOK+FgKbHDrzrN4Ac4Nu7OAvOtF83kWhQ3m4wsBV3xdVbX4ZegBNROfFd7Hxu",
+      "canonicalName": "app.contoso.example.test",
+      "serverFarmId": "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-web/providers/Microsoft.Web/serverfarms/plan1"
+     }
+    }
+   ],
+   "nextLink": "https://management.azure.com/subscriptions/11111111-2222-3333-4444-555555555555/providers/Microsoft.Web/certificates?api-version=2023-12-01&$skipToken=cGFnZTE"
+  }
+ }
+}

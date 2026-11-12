@@ -106,6 +106,15 @@ shapes, owned domains, batching) to the fake core validating against the
 core's file (`MEISCOPE_CONTRACT`). `STRICT=1` also fails on any difference.
 Real-core ingestion is left to the Phase 0 integration step.
 
+## Azure, Entra ID and Defender
+
+`azure_key_vault`, `azure_app_service`, `azure_app_gateway`, `entra_id` and
+`defender_tvm` are described in [azure.md](azure.md). The first four emit
+`cloud_resource` targets, a PROPOSAL in
+`api/proposed/collector-0.10.0-proposed.yaml` (additive over 0.9.0), kept
+behind `MEISCOPE_FEATURE_CLOUD_RESOURCE_V1` (off by default); test them
+against `submittest.NewCloudProposedCore()`.
+
 ## Running adapters
 
 ```
@@ -122,6 +131,7 @@ buffer when `MEISCOPE_BUFFER_DIR` is set (recommended), else straight to the cor
 |---|---|
 | `MEISCOPE_CORE_URL` | https URL of the core |
 | `MEISCOPE_FEATURE_LOCAL_STORE_V1` | `true` enables store and file observations (proposed contract); default off |
+| `MEISCOPE_FEATURE_CLOUD_RESOURCE_V1` | `true` enables cloud_resource observations (proposed contract 0.10.0); default off |
 | `MEISCOPE_CREDENTIAL_FILE`, `MEISCOPE_CREDENTIAL_KEY_FILE` | the age-encrypted credential file and the collector's identity file |
 | `MEISCOPE_BUFFER_DIR` | directory of the local buffer |
 | `MEISCOPE_BUFFER_KEY_REF` | credential reference of the buffer key (default `buffer_key`; 32 bytes, base64) |

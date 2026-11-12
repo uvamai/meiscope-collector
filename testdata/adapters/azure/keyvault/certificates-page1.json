@@ -1,0 +1,28 @@
+{
+ "request": {
+  "method": "GET",
+  "path": "/certificates",
+  "query": "api-version=7.4&maxresults=25&$skiptoken=c2tpcHRva2VuLXBhZ2Ux"
+ },
+ "response": {
+  "status": 200,
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": {
+   "value": [
+    {
+     "id": "https://kv-contoso-prod.vault.azure.net/certificates/partner-manual",
+     "x5t": "XZMeRIAicVomPyO3dH1UW6u7UVY",
+     "attributes": {
+      "enabled": true,
+      "exp": 1797083078,
+      "created": 1762000000,
+      "updated": 1762000000
+     }
+    }
+   ],
+   "nextLink": null
+  }
+ }
+}
