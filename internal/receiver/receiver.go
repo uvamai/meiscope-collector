@@ -16,7 +16,10 @@
 //     front of it on any non-loopback path (docs/install.md).
 //   - Every request needs a bearer token whose value comes from
 //     credential.Source, compared in constant time and never logged.
-//   - Request bodies are limited to 1 MiB and requests are rate limited.
+//   - Request bodies are limited to 1 MiB and authenticated requests are
+//     rate limited (authentication comes first, so unauthenticated callers
+//     cannot use up the limit). The spool is capped (MaxSpoolBytes, 1 GiB
+//     by default); a push past the cap is refused with 507.
 //   - Pushed content is untrusted data: it is parsed as JSON events,
 //     validated by the caller's Validate function, size capped, written as
 //     compact JSON lines and never executed or interpreted as instructions.
@@ -56,6 +59,9 @@ const (
 	// DefaultRatePerSecond and DefaultBurst bound the accepted requests.
 	DefaultRatePerSecond = 5.0
 	DefaultBurst         = 10
+	// DefaultMaxSpoolBytes caps the spool files (push-*.jsonl) together;
+	// pushes beyond it are refused with 507 until files are removed.
+	DefaultMaxSpoolBytes int64 = 1 << 30
 )
 
 var tokenRefPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
@@ -73,6 +79,9 @@ type Config struct {
 	// RatePerSecond and Burst limit requests (0: defaults).
 	RatePerSecond float64
 	Burst         int
+	// MaxSpoolBytes caps the total size of the spool files
+	// (MEISCOPE_RECEIVER_MAX_SPOOL_BYTES; 0: DefaultMaxSpoolBytes).
+	MaxSpoolBytes int64
 }
 
 // LoadConfig reads MEISCOPE_RECEIVER_ENABLED, _ADDR, _DIR, _TOKEN_REF and
@@ -95,6 +104,13 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("MEISCOPE_RECEIVER_RATE: want requests per second in (0, 1000], got %q", v)
 		}
 		c.RatePerSecond = f
+	}
+	if v := strings.TrimSpace(getenv("MEISCOPE_RECEIVER_MAX_SPOOL_BYTES")); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < MaxBodyBytes {
+			return Config{}, fmt.Errorf("MEISCOPE_RECEIVER_MAX_SPOOL_BYTES: want a byte count of at least %d, got %q", MaxBodyBytes, v)
+		}
+		c.MaxSpoolBytes = n
 	}
 	return c, c.Validate()
 }
@@ -186,6 +202,9 @@ func New(cfg Config, creds credential.Source, clk clock.Clock, validate func(eve
 	if cfg.Burst <= 0 {
 		cfg.Burst = DefaultBurst
 	}
+	if cfg.MaxSpoolBytes <= 0 {
+		cfg.MaxSpoolBytes = DefaultMaxSpoolBytes
+	}
 	return &Receiver{cfg: cfg, creds: creds, clk: clk, validate: validate, tokens: float64(cfg.Burst), last: clk.Now()}, nil
 }
 
@@ -213,11 +232,8 @@ func (r *Receiver) serve(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !r.allow() {
-		w.Header().Set("Retry-After", "1")
-		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
-		return
-	}
+	// Authenticate first: an unauthenticated caller must not be able to use
+	// up the rate limit and lock the real log pipeline out.
 	want, err := r.creds.Get(req.Context(), r.cfg.TokenRef)
 	if err != nil || want.Empty() {
 		http.Error(w, "push is not configured", http.StatusServiceUnavailable)
@@ -226,6 +242,11 @@ func (r *Receiver) serve(w http.ResponseWriter, req *http.Request) {
 	got, ok := strings.CutPrefix(req.Header.Get("Authorization"), "Bearer ")
 	if !ok || subtle.ConstantTimeCompare([]byte(got), []byte(want.Reveal())) != 1 {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if !r.allow() {
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
 	if req.ContentLength > MaxBodyBytes {
@@ -255,6 +276,11 @@ func (r *Receiver) serve(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	if err := r.append(events); err != nil {
+		if errors.Is(err, ErrSpoolFull) {
+			w.Header().Set("Retry-After", "300")
+			http.Error(w, err.Error(), http.StatusInsufficientStorage)
+			return
+		}
 		http.Error(w, "could not store events", http.StatusInternalServerError)
 		return
 	}
@@ -329,6 +355,17 @@ func (r *Receiver) append(events [][]byte) error {
 	if err := os.MkdirAll(r.cfg.Dir, 0o700); err != nil {
 		return err
 	}
+	var add int64
+	for _, e := range events {
+		add += int64(len(e)) + 1
+	}
+	used, err := spoolBytes(r.cfg.Dir)
+	if err != nil {
+		return err
+	}
+	if used+add > r.cfg.MaxSpoolBytes {
+		return fmt.Errorf("%w: %d of %d bytes used by push-*.jsonl in the spool directory; remove spool files the osquery adapter has read, or raise MEISCOPE_RECEIVER_MAX_SPOOL_BYTES", ErrSpoolFull, used, r.cfg.MaxSpoolBytes)
+	}
 	name := filepath.Join(r.cfg.Dir, "push-"+r.clk.Now().UTC().Format("20060102")+".jsonl")
 	f, err := os.OpenFile(filepath.Clean(name), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -348,6 +385,30 @@ func (r *Receiver) append(events [][]byte) error {
 		return err
 	}
 	return f.Close()
+}
+
+// ErrSpoolFull refuses events that would take the spool past MaxSpoolBytes.
+var ErrSpoolFull = errors.New("the receiver's spool is full")
+
+// spoolBytes sums the sizes of the spool files the receiver writes
+// (push-*.jsonl) in dir.
+func spoolBytes(dir string) (int64, error) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	for _, e := range ents {
+		if !e.Type().IsRegular() || !strings.HasPrefix(e.Name(), "push-") || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue // removed meanwhile
+		}
+		n += info.Size()
+	}
+	return n, nil
 }
 
 // Serve listens on the configured address and serves until ctx ends. The
