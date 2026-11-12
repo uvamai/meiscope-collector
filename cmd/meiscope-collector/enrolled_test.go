@@ -244,7 +244,7 @@ func TestEnrolledRunRenewsAndUsesTheNewCertificate(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serveWith(ctx, ln, quietLog(), time.Hour, nil, rt) }()
+	go func() { done <- serveWith(ctx, ln, quietLog(), time.Hour, nil, rt, false) }()
 
 	waitSleepers(t, clk, 2) // the renewer waits for RenewAt, the scopes for the next refresh
 	first := f.core.SerialsFor(submit.ScopesPath)

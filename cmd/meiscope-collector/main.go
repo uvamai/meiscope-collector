@@ -121,7 +121,7 @@ func runCmd(ctx context.Context, args []string, stdout, stderr io.Writer, getenv
 		if err != nil {
 			return fmt.Errorf("listen %s: %w", cfg.HealthAddr, err)
 		}
-		return serveWith(ctx, ln, log, idleInterval, nil, rt)
+		return serveWith(ctx, ln, log, idleInterval, nil, rt, cfg.StatusRemote)
 	}
 	var sub *submit.Client
 	if cfg.CoreURL != "" {
@@ -143,12 +143,14 @@ func runCmd(ctx context.Context, args []string, stdout, stderr io.Writer, getenv
 // serve runs the health server on ln, and the probe schedule when sched is
 // not nil, until ctx ends.
 func serve(ctx context.Context, ln net.Listener, log *slog.Logger, interval time.Duration, sched *probeSchedule) error {
-	return serveWith(ctx, ln, log, interval, sched, nil)
+	return serveWith(ctx, ln, log, interval, sched, nil, false)
 }
 
 // serveWith is serve with, when rt is not nil, an enrolled collector's
-// calls to the core running alongside and GET /status served.
-func serveWith(ctx context.Context, ln net.Listener, log *slog.Logger, interval time.Duration, sched *probeSchedule, rt *enrolledRuntime) error {
+// calls to the core running alongside and GET /status served. Only /healthz
+// answers non-loopback callers; /status does too when remoteStatus
+// (MEISCOPE_STATUS_REMOTE) is set (listenerGuard).
+func serveWith(ctx context.Context, ln net.Listener, log *slog.Logger, interval time.Duration, sched *probeSchedule, rt *enrolledRuntime, remoteStatus bool) error {
 	handler := platform.HealthHandler()
 	if rt != nil {
 		handler = rt.handler(handler)
@@ -165,7 +167,7 @@ func serveWith(ctx context.Context, ln net.Listener, log *slog.Logger, interval 
 		defer func() { stopProbe(); <-probeDone }()
 	}
 	srv := &http.Server{
-		Handler:           handler,
+		Handler:           listenerGuard(handler, remoteStatus),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

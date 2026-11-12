@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
+	"strings"
 )
 
 // Default values used when the matching MEISCOPE_* variable is unset.
@@ -24,6 +26,10 @@ type Config struct {
 	LogLevel string
 	// LogFormat is json or text (MEISCOPE_LOG_FORMAT).
 	LogFormat string
+	// StatusRemote lets GET /status answer non-loopback callers
+	// (MEISCOPE_STATUS_REMOTE=true). Off by default: only /healthz is open
+	// to the network; /pause and /resume are always loopback-only.
+	StatusRemote bool
 }
 
 // LoadConfig reads the configuration through getenv (os.Getenv in production)
@@ -34,6 +40,13 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		HealthAddr: valueOr(getenv("MEISCOPE_HEALTH_ADDR"), DefaultHealthAddr),
 		LogLevel:   valueOr(getenv("MEISCOPE_LOG_LEVEL"), DefaultLogLevel),
 		LogFormat:  valueOr(getenv("MEISCOPE_LOG_FORMAT"), DefaultLogFormat),
+	}
+	if v := strings.TrimSpace(getenv("MEISCOPE_STATUS_REMOTE")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("MEISCOPE_STATUS_REMOTE: want true or false, got %q", v)
+		}
+		cfg.StatusRemote = b
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
