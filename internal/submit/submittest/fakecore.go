@@ -66,6 +66,16 @@ type Rejection struct {
 // NewCore starts a fake core validating against the vendored spec.
 func NewCore() (*Core, error) { return NewCoreWithSpec(SpecPath()) }
 
+// CloudProposedSpecPath returns the path of the proposed contract 0.10.0
+// (cloud_resource targets), which the core has not adopted (api/proposed).
+func CloudProposedSpecPath() string {
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "proposed", "collector-0.10.0-proposed.yaml")
+}
+
+// NewCloudProposedCore starts a fake core for the proposed contract 0.10.0.
+func NewCloudProposedCore() (*Core, error) { return NewCoreWithSpec(CloudProposedSpecPath()) }
+
 // NewProposedCore starts a fake core for the proposed contract 0.5.0.
 func NewProposedCore() (*Core, error) { return NewCoreWithSpec(ProposedSpecPath()) }
 
@@ -206,6 +216,9 @@ type observation struct {
 		Port  int    `json:"port"`
 		Store string `json:"store"`
 		Path  string `json:"path"`
+		// Provider and ResourceID belong to cloud_resource (0.10.0 proposal).
+		Provider   string `json:"provider"`
+		ResourceID string `json:"resource_id"`
 	} `json:"target"`
 	Method      string   `json:"method"`
 	Outcome     string   `json:"outcome"`
@@ -246,10 +259,20 @@ func rejection(o observation) (code, msg string) {
 		return "invalid_target", "a store target needs store (0.9.0)"
 	case o.Target.Kind == "file" && o.Target.Path == "":
 		return "invalid_target", "a file target needs path (0.9.0)"
+	case o.Target.Kind == "cloud_resource" && o.Method != "adapter":
+		return "invalid_target", "cloud_resource targets are read by method adapter only (0.10.0 proposal)"
+	case o.Target.Kind == "cloud_resource" && (o.Target.Port != 0 || o.Target.SNI != ""):
+		return "invalid_target", "cloud_resource targets have no port or sni (0.10.0 proposal)"
+	case o.Target.Kind == "cloud_resource" && (o.Target.Provider == "" || o.Target.ResourceID == ""):
+		return "invalid_target", "a cloud_resource target needs provider and resource_id (0.10.0 proposal)"
+	case o.Target.Kind != "cloud_resource" && (o.Target.Provider != "" || o.Target.ResourceID != ""):
+		return "invalid_target", "provider and resource_id belong to cloud_resource targets only (0.10.0 proposal)"
 	case o.Adapter != nil && o.Method != "adapter":
 		return "invalid_target", "adapter evidence is allowed with method adapter only (0.9.0)"
 	case o.Method == "adapter" && o.Adapter == nil:
 		return "invalid_target", "method adapter requires adapter evidence (0.9.0)"
+	case o.Adapter != nil && o.Target.Kind != "store" && o.Target.Kind != "file" && o.Target.Kind != "cloud_resource":
+		return "invalid_target", "adapter evidence is allowed only with a store, file or cloud_resource target (0.9.0, 0.10.0 proposal)"
 	case o.Target.Kind == "store" && o.Adapter.Certificate == nil:
 		return "invalid_target", "a store target needs adapter.certificate (0.9.0)"
 	case o.Target.Kind == "file" && o.Adapter.File == nil:

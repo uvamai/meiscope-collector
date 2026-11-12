@@ -137,9 +137,10 @@ tasks:
       - sh scripts/contract-diff.sh "{{.CORE}}"
 
   contract:proposal:
-    desc: oasdiff breaking-change check of the proposed contract against the vendored 0.8.1 file
+    desc: oasdiff breaking-change check of the proposed contracts against the vendored file
     cmds:
       - oasdiff breaking --flatten-allof api/collector.yaml api/proposed/collector-0.5.0-proposed.yaml --fail-on ERR
+      - oasdiff breaking --flatten-allof api/collector.yaml api/proposed/collector-0.10.0-proposed.yaml --fail-on ERR
 
   clean:
     desc: Remove build and package output
