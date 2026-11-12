@@ -166,4 +166,6 @@ refused, since it would leak into logs. Proxy authentication comes only from the
 credential source: set `MEISCOPE_PROXY_CREDENTIAL` to a reference whose value is
 `user:password`; it is read for each CONNECT and sent only in
 `Proxy-Authorization`. `MEISCOPE_CA_BUNDLE` adds trusted roots (a TLS-inspecting
-proxy, a private core CA).
+proxy, a private core CA). No adapter client follows HTTP redirects: a 3xx
+answer is an error naming the status and target host, so an API token is never
+replayed to another URL; configure the final URL.

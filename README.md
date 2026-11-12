@@ -60,7 +60,8 @@ curl http://127.0.0.1:8090/healthz
 | Variable | Default | Meaning |
 |---|---|---|
 | `MEISCOPE_CORE_URL` | (unset) | https base URL of the Meiscope core |
-| `MEISCOPE_HEALTH_ADDR` | `127.0.0.1:8090` | listen address of `/healthz` (`0.0.0.0:8090` in the container image) |
+| `MEISCOPE_HEALTH_ADDR` | `127.0.0.1:8090` | listen address of `/healthz` (`0.0.0.0:8090` in the container image); `/status`, `/pause` and `/resume` on it answer loopback callers only (see [docs/install.md](docs/install.md#local-listener)) |
+| `MEISCOPE_STATUS_REMOTE` | `false` | `true` lets `GET /status` answer non-loopback callers |
 | `MEISCOPE_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `MEISCOPE_LOG_FORMAT` | `json` | `json` or `text` |
 | `MEISCOPE_CT_*` | | Certificate Transparency poller: owned domains, logs, state; see [docs/ct.md](docs/ct.md) |
