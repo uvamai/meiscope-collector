@@ -85,9 +85,12 @@ jobs:
 
   policy:
     # PENDING: the pacer property tests wait for a human engineer (founder
-    # decision 2 Nov 2026; issue #13). This job does not test anything yet;
-    # it says so in the run summary rather than passing silently.
+    # decision 2 Nov 2026; issue #13). This job does not test anything yet,
+    # so it is skipped rather than run: a green check here would claim
+    # ScanPolicy coverage that does not exist (security review finding M9).
+    # Remove the "if: false" in the pull request that adds the tests (#13).
     name: scanpolicy property tests (PENDING — human engineer)
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
