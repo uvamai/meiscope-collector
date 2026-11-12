@@ -60,13 +60,110 @@ If enrolment fails with "invalid, expired or already used", ask for a new
 token. To enrol again, stop the collector and move the state directory away
 first; `enrol` refuses to overwrite an existing identity.
 
+### Running an enrolled collector
+
+Once `enrol` has written an identity, `meiscope-collector run` (the systemd
+unit's command) is **one long-lived process** that talks to the core only
+over mTLS with that identity, at the core URL stored at enrolment:
+
+| Task | What it does | How often |
+|---|---|---|
+| Certificate renewal | At two thirds of the certificate's lifetime: a new key **on this host**, a CSR, `POST /collector/v1/certificate` authenticated by the current certificate, then the new key and certificate replace the old ones together (one rename). The next request presents the new certificate. | once per lifetime (about every 20 days); after a failure, again after 30 s, 1 min, 2 min, ... at most 1 h (jittered) |
+| Scan scopes | `GET /collector/v1/scopes`. Each scope is verified with the scope-signing keys pinned at enrolment, validated, and refused if its version is lower than the last accepted for its id (or the same version with other bytes). When a fetch fails, the last good set is kept; scopes the core no longer lists, or that have expired, are dropped. | `MEISCOPE_SCOPE_REFRESH` (5 min); after a failure, from 30 s doubling up to that interval |
+| Certificate Transparency | Reads the owned domains from the core (`GET /collector/v1/owned-domains`), polls public CT sources for them and submits what it finds (`POST /collector/v1/observations`), as `ct-poll` does ([ct.md](ct.md)). | `MEISCOPE_CT_INTERVAL` (1 h) |
+
+> **Probing scopes from the core is not available yet.** The scopes are
+> fetched, verified and held (see `GET /status`), but this release does not
+> probe them: the probe schedule for enrolled collectors arrives with WP0.3.
+> Probing a signed scope from a file (`MEISCOPE_SCOPE_FILE`,
+> [probe.md](probe.md)) remains available for a collector that is **not**
+> enrolled; an enrolled collector refuses to start with `MEISCOPE_SCOPE_FILE`
+> set, so the two sources are never mixed.
+
+If the certificate expires without being renewed (the core was unreachable
+for the last third of its lifetime, or refused every renewal), the collector
+logs an error saying so, stops calling the core (every request would be
+refused) and drops its scopes; `/healthz` keeps answering and `GET /status`
+shows `"state": "expired"`. Enrol again: stop the service, move the state
+directory away, and run `enrol` with a new token.
+
+Environment variables of an enrolled `run` (all optional):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MEISCOPE_STATE_DIR` | `/var/lib/meiscope-collector` | the identity written by `enrol`; its presence is what makes `run` an enrolled collector |
+| `MEISCOPE_CORE_URL` | the URL stored at enrolment | may be left set; if it differs from the stored URL, `run` refuses to start (enrol again to move to another core) |
+| `MEISCOPE_SCOPE_REFRESH` | `5m` | how often the scopes are fetched; `1m` to `1h` |
+| `MEISCOPE_SCOPE_STATE_FILE` | `<state dir>/scope-versions.json` | the highest scope version accepted per id, so an older signed scope is refused after a restart too |
+| `MEISCOPE_CT_INTERVAL` | `1h` | how often CT is polled; `15m` to `24h`, or `off` |
+| `MEISCOPE_CT_STATE_FILE` | `<state dir>/ct-state.json` | CT progress (public data only); the other `MEISCOPE_CT_*` settings are in [ct.md](ct.md). `MEISCOPE_CT_DOMAINS` is ignored: the owned domains come from the core |
+| `MEISCOPE_PROXY_URL`, `MEISCOPE_NO_PROXY`, `MEISCOPE_PROXY_CREDENTIAL`, `HTTPS_PROXY`, `NO_PROXY` | none | the proxy for calls to the core ("Proxy" below); mTLS runs through the proxy's CONNECT tunnel |
+| `MEISCOPE_HEALTH_ADDR` | `127.0.0.1:8090` | the local listener of `/healthz` and `/status` |
+| `MEISCOPE_LOG_LEVEL`, `MEISCOPE_LOG_FORMAT` | `info`, `json` | logging |
+| `MEISCOPE_SCOPE_FILE`, `MEISCOPE_SCOPE_KEYS` | none | **must not be set** on an enrolled collector (configuration error) |
+
+`MEISCOPE_CA_BUNDLE` is used only for the first contact by `enrol`; every
+later call to the core trusts only the CA bundle pinned in the state
+directory.
+
+What an operator sees:
+
+```text
+$ journalctl -u meiscope-collector
+{"level":"INFO","msg":"enrolled collector running","collector_id":"0b7f…","core_url":"https://core.example","certificate_not_after":"…","renew_at":"…","scope_refresh":"5m0s","ct_interval":"1h0m0s"}
+{"level":"INFO","msg":"scope accepted","scope":"7d0f…","version":3,"targets":12,"not_after":"…"}
+{"level":"INFO","msg":"collector certificate renewed","collector_id":"0b7f…","not_after":"…","renew_at":"…"}
+{"level":"WARN","msg":"collector certificate renewal failed; retrying","attempt":1,"retry_in":"24s","error":"…"}
+
+$ curl -s http://127.0.0.1:8090/status
+{
+  "enrolled": true,
+  "collector_id": "0b7f3c52-…",
+  "core_url": "https://core.example",
+  "certificate": {
+    "state": "valid",
+    "not_before": "…", "not_after": "…", "renew_at": "…",
+    "renewal": { "last_renewed": "…", "consecutive_failures": 0, "expired": false }
+  },
+  "scopes": { "count": 1, "ids": ["7d0f…"], "last_fetch": "…", "last_attempt": "…", "refused_in_last_fetch": 0 },
+  "probing": "not available yet for scopes from the core: …",
+  "ct": { "enabled": true, "interval": "1h0m0s", "last_poll": "…" }
+}
+```
+
+`certificate.state` is `valid`, `renewal_failing` (renewal is being retried;
+the current certificate still works) or `expired`. `/status` never shows
+keys, tokens or credentials; `/healthz` is unchanged (liveness only).
+`/status` is served only by an enrolled collector.
+
+The systemd unit runs as a dynamic unprivileged user whose state directory
+is `/var/lib/meiscope-collector`; systemd hands the identity written by
+`sudo … enrol` to that user when the service starts. Do not run a second
+`run` or a `ct-poll` against the same state directory: the one process
+renews the certificate, so there is never a second renewer.
+
 ## Container
 
+The image runs `meiscope-collector run` as the distroless `nonroot` user;
+keep the state directory on a volume so the identity survives restarts.
+
 ```sh
-docker run -d --name meiscope-collector \
+# once: enrol into the volume (the token is read from standard input)
+docker run --rm -i \
+  -v meiscope-collector-state:/var/lib/meiscope-collector \
+  -v "$PWD/core-ca.pem:/etc/meiscope/core-ca.pem:ro" \
   -e MEISCOPE_CORE_URL=https://<core> \
+  -e MEISCOPE_CA_BUNDLE=/etc/meiscope/core-ca.pem \
+  ghcr.io/uvamai/meiscope-collector@sha256:<digest> enrol --token-file -
+
+# then run it
+docker run -d --name meiscope-collector --restart unless-stopped \
+  -v meiscope-collector-state:/var/lib/meiscope-collector \
   ghcr.io/uvamai/meiscope-collector@sha256:<digest>
 ```
+
+Inside the container `/healthz` and `/status` listen on `0.0.0.0:8090`;
+publish that port only on a private network, if at all.
 
 ## Windows
 
