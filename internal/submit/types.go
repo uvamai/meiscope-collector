@@ -175,6 +175,72 @@ type AdapterEvidence struct {
 	File        *FileDigest          `json:"file,omitempty"`
 	Custody     *Custody             `json:"custody,omitempty"`
 	Findings    []Finding            `json:"findings,omitempty"`
+
+	// The fields below are PROPOSED in contract 0.10.0 (api/proposed). The
+	// 0.9.0 core accepts and ignores unknown AdapterEvidence properties.
+
+	// RenewalMode is a hint the source proves, for example
+	// external_automated for a certificate cert-manager renews.
+	RenewalMode string `json:"renewal_mode,omitempty"`
+	// Kubernetes is what the kubernetes adapter read about the Secret.
+	Kubernetes *KubernetesEvidence `json:"kubernetes,omitempty"`
+	// Scanner is what a scanner export said about the endpoint.
+	Scanner *ScannerEvidence `json:"scanner,omitempty"`
+}
+
+// Renewal modes (PROPOSED 0.10.0).
+const (
+	RenewalExternalAutomated = "external_automated"
+)
+
+// KubernetesEvidence describes a Kubernetes TLS Secret (PROPOSED 0.10.0).
+// It never carries the Secret's data, only whether tls.key is present
+// (Custody).
+type KubernetesEvidence struct {
+	Cluster   string `json:"cluster"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	// ChainLength is the number of certificates in tls.crt.
+	ChainLength int `json:"chain_length,omitempty"`
+	// Hostnames are the host names Ingress and Gateway TLS sections bind
+	// to the Secret, sorted.
+	Hostnames []string `json:"hostnames,omitempty"`
+	// References are the Ingresses and Gateways that use the Secret.
+	References  []KubernetesRef         `json:"references,omitempty"`
+	CertManager *CertManagerCertificate `json:"cert_manager,omitempty"`
+}
+
+// KubernetesRef names a Kubernetes object.
+type KubernetesRef struct {
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+}
+
+// CertManagerCertificate is the cert-manager Certificate that writes the
+// Secret (PROPOSED 0.10.0).
+type CertManagerCertificate struct {
+	Name        string     `json:"name"`
+	IssuerKind  string     `json:"issuer_kind,omitempty"`
+	IssuerName  string     `json:"issuer_name,omitempty"`
+	IssuerGroup string     `json:"issuer_group,omitempty"`
+	DNSNames    []string   `json:"dns_names,omitempty"`
+	Ready       *bool      `json:"ready,omitempty"`
+	NotAfter    *time.Time `json:"not_after,omitempty"`
+	RenewalTime *time.Time `json:"renewal_time,omitempty"`
+	Revision    *int64     `json:"revision,omitempty"`
+}
+
+// ScannerEvidence is what a vulnerability scanner export reported about an
+// endpoint (PROPOSED 0.10.0).
+type ScannerEvidence struct {
+	// Check is the scanner's check id, e.g. Tenable plugin 10863 or Qualys
+	// QID 86002.
+	Check string `json:"check,omitempty"`
+	// DNSName is the host name the scanner resolved for the endpoint.
+	DNSName string `json:"dns_name,omitempty"`
+	// File is the base name of the export the row came from.
+	File string `json:"file,omitempty"`
 }
 
 // Finding codes (PROPOSED 0.5.0).
@@ -203,7 +269,9 @@ const (
 // CertificateMetadata holds certificate fields as the source reports them
 // (schema CertificateMetadata, PROPOSED 0.5.0). It never holds key material.
 type CertificateMetadata struct {
-	SHA1             string     `json:"sha1"`
+	// SHA1 is required by contract 0.9.0; the 0.10.0 proposal allows issuer
+	// and serial instead when the source reports no fingerprint.
+	SHA1             string     `json:"sha1,omitempty"`
 	Serial           string     `json:"serial,omitempty"`
 	Subject          string     `json:"subject,omitempty"`
 	Issuer           string     `json:"issuer,omitempty"`
@@ -217,6 +285,9 @@ type CertificateMetadata struct {
 	SigningAlgorithm string     `json:"signing_algorithm,omitempty"`
 	SubjectKeyID     string     `json:"subject_key_id,omitempty"`
 	AuthorityKeyID   string     `json:"authority_key_id,omitempty"`
+	// SHA256 and DNSNames are PROPOSED in contract 0.10.0.
+	SHA256   string   `json:"sha256,omitempty"`
+	DNSNames []string `json:"dns_names,omitempty"`
 }
 
 // FileDigest is a file's digest and size, never its contents (schema

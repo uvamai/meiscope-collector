@@ -71,7 +71,7 @@ func findKeyFields(doc []byte) ([]keyFinding, error) {
 }
 
 func TestKeyGuardOnContracts(t *testing.T) {
-	for _, p := range []string{submittest.VendoredSpecPath(), submittest.ProposedSpecPath()} {
+	for _, p := range []string{submittest.VendoredSpecPath(), submittest.ProposedSpecPath(), submittest.Proposed010SpecPath()} {
 		doc, err := os.ReadFile(p) //nolint:gosec // repository contract files
 		if err != nil {
 			t.Fatal(err)

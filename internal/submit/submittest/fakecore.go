@@ -38,6 +38,14 @@ func ProposedSpecPath() string {
 	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "proposed", "collector-0.5.0-proposed.yaml")
 }
 
+// Proposed010SpecPath returns the path of the proposed contract 0.10.0
+// (adapter evidence on host_port_sni targets, issuer-and-serial identity),
+// which the core has not adopted (api/proposed).
+func Proposed010SpecPath() string {
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "api", "proposed", "collector-0.10.0-proposed.yaml")
+}
+
 // Core is a fake core. Each observations request must be gzip JSON that
 // validates as an ObservationBatch; an invalid request gets 400 and is
 // recorded in Errors. Observations that break a rule the contract states in
