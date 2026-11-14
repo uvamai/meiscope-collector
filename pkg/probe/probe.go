@@ -101,7 +101,9 @@ type Options struct {
 	// Pace, when set, is called with the vetted address after every policy
 	// check and immediately before the dial; an error refuses the probe. A
 	// scanner uses it for its own rate limits and pause. When Pace is set and
-	// Budget is nil, no per-process budget applies (the caller paces).
+	// Budget is nil, no per-process budget applies (the caller paces). Pace
+	// runs outside Target.Timeout: its context is the caller's, and the
+	// timeout's remainder after the lookup starts when Pace returns.
 	Pace func(ctx context.Context, addr netip.Addr) error
 }
 
@@ -267,13 +269,17 @@ func (p *Prober) Probe(ctx context.Context, t Target) (*Result, error) {
 			return nil, err
 		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, t.Timeout)
-	defer cancel()
-
-	addr, class, err := p.resolve(ctx, t.Host)
+	// t.Timeout covers the lookup, the dial and the handshake, never the
+	// wait in Pace: a scanner's queue for a busy network is not the
+	// target's slowness (S-25).
+	start := time.Now()
+	rctx, rcancel := context.WithTimeout(ctx, t.Timeout)
+	addr, class, err := p.resolve(rctx, t.Host)
+	rcancel()
 	if err != nil {
 		return nil, err
 	}
+	left := t.Timeout - time.Since(start)
 	if p.allow != nil && !p.allow.allowsDial(addr, addr) {
 		return nil, fmt.Errorf("%w (%s resolves to %s)", ErrNotAllowed, t.Host, addr)
 	}
@@ -286,8 +292,10 @@ func (p *Prober) Probe(ctx context.Context, t Target) (*Result, error) {
 			return nil, err
 		}
 	}
+	ctx, cancel := context.WithTimeout(ctx, left)
+	defer cancel()
 
-	d := net.Dialer{Timeout: t.Timeout, ControlContext: p.dialGuard(addr)}
+	d := net.Dialer{Timeout: left, ControlContext: p.dialGuard(addr)}
 	p.log.DebugContext(ctx, "probe dial", slog.String("ip", addr.String()), slog.Int("port", t.Port), slog.String("starttls", t.StartTLS))
 	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(addr.String(), strconv.Itoa(t.Port)))
 	if err != nil {
