@@ -203,8 +203,13 @@ func (r *Runner) runJob(ctx context.Context, sc *scope.Scope, pc *pacer, j Job, 
 			Logger:   r.o.Logger,
 			Allow:    allow,
 			Pace: func(ctx context.Context, a netip.Addr) error {
+				// Only a wait that ended in a dial is fed back to the
+				// pacer: a cancelled wait is not a network timeout (S-25).
+				if err := pc.wait(ctx, a); err != nil {
+					return err
+				}
 				dialled = a
-				return pc.wait(ctx, a)
+				return nil
 			},
 		})
 		at := r.o.Clock.Now().UTC()
@@ -217,7 +222,7 @@ func (r *Runner) runJob(ctx context.Context, sc *scope.Scope, pc *pacer, j Job, 
 		})
 		outcome := probe.Outcome(err)
 		if outcome == "" {
-			if errors.Is(err, context.Canceled) || errors.Is(err, ErrPaused) || errors.Is(err, ErrOutsideTime) {
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, ErrPaused) || errors.Is(err, ErrOutsideTime) {
 				notRun(len(j.SNIs) - i)
 				return
 			}

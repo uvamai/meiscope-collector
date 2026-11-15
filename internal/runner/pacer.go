@@ -63,11 +63,16 @@ func (p *pacer) wait(ctx context.Context, a netip.Addr) error {
 	if err := p.check(); err != nil {
 		return err
 	}
-	d := p.reserve(a)
+	d, booked := p.reserve(a)
 	if err := p.clk.Sleep(ctx, d); err != nil {
+		p.release(a, booked)
 		return err
 	}
-	return p.check() // a pause or the window may have closed while waiting
+	if err := p.check(); err != nil { // a pause or the window may have closed while waiting
+		p.release(a, booked)
+		return err
+	}
+	return nil
 }
 
 func (p *pacer) check() error {
@@ -81,8 +86,9 @@ func (p *pacer) check() error {
 }
 
 // reserve books the next start in a's network and returns how long to wait
-// for it (GCRA: at most Burst starts at once, then one per interval).
-func (p *pacer) reserve(a netip.Addr) time.Duration {
+// for it (GCRA: at most Burst starts at once, then one per interval), and
+// the booking, for release.
+func (p *pacer) reserve(a netip.Addr) (time.Duration, booking) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	k := NetworkOf(a)
@@ -99,7 +105,26 @@ func (p *pacer) reserve(a netip.Addr) time.Duration {
 	}
 	st.tat = st.tat.Add(iv)
 	wait := st.tat.Sub(now) - time.Duration(p.policy.Burst)*iv
-	return max(wait, 0)
+	return max(wait, 0), booking{tat: st.tat, iv: iv}
+}
+
+// booking is one reservation: the arrival time it set and its interval.
+type booking struct {
+	tat time.Time
+	iv  time.Duration
+}
+
+// release gives back a reservation whose connection never started (the
+// wait was cancelled, or a pause or the window closed meanwhile), so the
+// next target in the network does not wait for an unused slot (S-25). Only
+// the latest booking is given back: rewinding past a later booking would
+// let two starts share a slot and exceed the rate.
+func (p *pacer) release(a netip.Addr, b booking) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if st := p.nets[NetworkOf(a)]; st != nil && st.tat.Equal(b.tat) {
+		st.tat = st.tat.Add(-b.iv)
+	}
 }
 
 // record feeds an attempt's outcome back: timeouts back off the network,
