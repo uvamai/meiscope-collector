@@ -75,9 +75,83 @@ fake core that validates every request against this file. Changes inside
 `/v1` are additive only. The CT poller's use of it (target kind `ct_log`,
 `ct_entry`, `GET /owned-domains`) is described in [docs/ct.md](docs/ct.md).
 
-## Install
+## Install on Linux
 
-See [docs/install.md](docs/install.md). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
+These are the steps the Meiscope portal shows under **Collectors ▸ Add
+collector**. The portal fills in the core URL and the CA fingerprint, and
+gives you the CA certificate (`collector-ca.crt`) and a one-time enrolment
+code. The steps are for a Debian or Ubuntu server on amd64 and the
+`v0.3.0-rc1` pre-release. Run them on the server, as a user with `sudo`.
+You also need `curl` and [cosign](https://docs.sigstore.dev/cosign/system_config/installation/).
+
+1. **Download** the package, the checksums and the package's signature:
+
+   ```sh
+   curl -fLO https://github.com/uvamai/meiscope-collector/releases/download/v0.3.0-rc1/meiscope-collector_0.3.0~rc1_amd64.deb
+   curl -fLO https://github.com/uvamai/meiscope-collector/releases/download/v0.3.0-rc1/SHA256SUMS
+   curl -fLO https://github.com/uvamai/meiscope-collector/releases/download/v0.3.0-rc1/meiscope-collector_0.3.0~rc1_amd64.deb.sigstore.json
+   ```
+
+2. **Check that the package is ours.** Both checks must pass: the first
+   prints `OK`, the second `Verified OK`. If either fails, stop.
+
+   ```sh
+   sha256sum -c --ignore-missing SHA256SUMS
+   cosign verify-blob --bundle meiscope-collector_0.3.0~rc1_amd64.deb.sigstore.json \
+     --certificate-identity-regexp '^https://github.com/uvamai/meiscope-collector/' \
+     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+     meiscope-collector_0.3.0~rc1_amd64.deb
+   ```
+
+3. **Install it.** This installs the collector and its systemd service. The
+   service is not started yet.
+
+   ```sh
+   sudo apt install ./meiscope-collector_0.3.0~rc1_amd64.deb
+   ```
+
+4. **Save the core's CA certificate** (`collector-ca.crt` from the portal)
+   and check its fingerprint against the one the portal shows. The check
+   must print `OK`.
+
+   ```sh
+   sudo install -m 644 -o root -g root collector-ca.crt /etc/meiscope-collector/collector-ca.crt
+   echo '<ca_sha256>  /etc/meiscope-collector/collector-ca.crt' | sha256sum -c
+   ```
+
+5. **Save the enrolment code** in a file that only root can read. Run the
+   command, paste the code, press Enter, then Ctrl+D. The code never goes
+   on a command line, so it stays out of your shell history and the process
+   list.
+
+   ```sh
+   sudo install -m 600 -o root -g root /dev/stdin /etc/meiscope-collector/enrol-code
+   ```
+
+6. **Enrol.** The collector creates its private key on this server and
+   sends only a certificate request. The code works once, and the file is
+   deleted when enrolment succeeds.
+
+   ```sh
+   sudo MEISCOPE_CORE_URL='<core_url>' \
+     MEISCOPE_CA_BUNDLE=/etc/meiscope-collector/collector-ca.crt \
+     meiscope-collector enrol --token-file /etc/meiscope-collector/enrol-code \
+     && sudo rm -f /etc/meiscope-collector/enrol-code
+   ```
+
+7. **Start the collector.** It then shows on the portal's Collectors page.
+   It probes only the explicit targets in the scopes you create there.
+
+   ```sh
+   sudo systemctl enable --now meiscope-collector
+   ```
+
+For other systems, the container image, upgrades and troubleshooting, see
+[docs/install.md](docs/install.md).
+
+## Contributing and security
+
+Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
 Security reports: [SECURITY.md](SECURITY.md).
 
 ## Working in this repository
