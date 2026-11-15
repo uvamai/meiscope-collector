@@ -93,8 +93,9 @@ tasks:
   test:policy:
     desc: ScanPolicy pacer property tests (PENDING - human engineer, issue 13)
     cmds:
-      - echo "::warning title=ScanPolicy property tests PENDING::The pacer property tests are not written yet and wait for a human engineer. Nothing is tested by this job. See https://github.com/uvamai/meiscope-collector/issues/13"
-      - echo "PENDING - ScanPolicy pacer property tests need a human engineer - https://github.com/uvamai/meiscope-collector/issues/13"
+      # Fails on purpose: nothing is tested yet, so it must not read as a pass.
+      - echo "PENDING - the ScanPolicy pacer property tests are not written yet (human engineer); nothing was tested - https://github.com/uvamai/meiscope-collector/issues/13" >&2
+      - exit 1
 
   lint:
     desc: go vet, golangci-lint and gofumpt

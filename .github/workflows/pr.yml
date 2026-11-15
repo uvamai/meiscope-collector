@@ -85,9 +85,13 @@ jobs:
 
   policy:
     # PENDING: the pacer property tests wait for a human engineer (founder
-    # decision 2 Nov 2026; issue #13). This job does not test anything yet;
-    # it says so in the run summary rather than passing silently.
+    # decision 2 Nov 2026; issue #13). Until they exist the job is skipped,
+    # so the check reads "skipped", not a green pass that tests nothing
+    # (S-18). It does not gate a merge. When the tests land in
+    # task test:policy, set the repository variable SCANPOLICY_TESTS=on
+    # (then remove this "if" and "PENDING" from the name).
     name: scanpolicy property tests (PENDING — human engineer)
+    if: vars.SCANPOLICY_TESTS == 'on'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
