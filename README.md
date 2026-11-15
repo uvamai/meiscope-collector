@@ -87,27 +87,29 @@ You also need `curl` and [cosign](https://docs.sigstore.dev/cosign/system_config
 1. **Download** the package, the checksums and the package's signature:
 
    ```sh
-   curl -fLO https://github.com/uvamai/meiscope-collector/releases/download/v0.3.0-rc1/meiscope-collector_0.3.0~rc1_amd64.deb
+   curl -fLO https://github.com/uvamai/meiscope-collector/releases/download/v0.3.0-rc1/meiscope-collector_0.3.0.rc1_amd64.deb
    curl -fLO https://github.com/uvamai/meiscope-collector/releases/download/v0.3.0-rc1/SHA256SUMS
-   curl -fLO https://github.com/uvamai/meiscope-collector/releases/download/v0.3.0-rc1/meiscope-collector_0.3.0~rc1_amd64.deb.sigstore.json
+   curl -fLO https://github.com/uvamai/meiscope-collector/releases/download/v0.3.0-rc1/meiscope-collector_0.3.0.rc1_amd64.deb.sigstore.json
    ```
 
 2. **Check that the package is ours.** Both checks must pass: the first
    prints `OK`, the second `Verified OK`. If either fails, stop.
+   (GitHub stores a `~` in a file name as `.`, while `SHA256SUMS` for
+   v0.3.0-rc1 lists the `~` names, so the first command maps them.)
 
    ```sh
-   sha256sum -c --ignore-missing SHA256SUMS
-   cosign verify-blob --bundle meiscope-collector_0.3.0~rc1_amd64.deb.sigstore.json \
+   sed 's/~/./g' SHA256SUMS | sha256sum -c --ignore-missing
+   cosign verify-blob --bundle meiscope-collector_0.3.0.rc1_amd64.deb.sigstore.json \
      --certificate-identity-regexp '^https://github.com/uvamai/meiscope-collector/' \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-     meiscope-collector_0.3.0~rc1_amd64.deb
+     meiscope-collector_0.3.0.rc1_amd64.deb
    ```
 
 3. **Install it.** This installs the collector and its systemd service. The
    service is not started yet.
 
    ```sh
-   sudo apt install ./meiscope-collector_0.3.0~rc1_amd64.deb
+   sudo apt install ./meiscope-collector_0.3.0.rc1_amd64.deb
    ```
 
 4. **Save the core's CA certificate** (`collector-ca.crt` from the portal)

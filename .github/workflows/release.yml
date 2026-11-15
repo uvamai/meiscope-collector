@@ -47,6 +47,13 @@ jobs:
           cp bin/linux_arm64/meiscope-collector       release/meiscope-collector_linux_arm64
           cp bin/windows_amd64/meiscope-collector.exe release/meiscope-collector_windows_amd64.exe
           cp dist/*.deb dist/*.rpm release/
+          # GitHub stores a "~" in an asset name as "."; nFPM writes a
+          # pre-release as 0.3.0~rc1. Rename here, so SHA256SUMS and the
+          # signatures name the files as they are downloaded.
+          for f in release/*~*; do
+            [ -e "$f" ] || continue
+            mv "$f" "$(dirname "$f")/$(basename "$f" | tr '~' '.')"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-unsigned
