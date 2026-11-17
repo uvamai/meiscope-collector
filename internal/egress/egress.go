@@ -62,7 +62,13 @@ type Options struct {
 	// Getenv reads HTTPS_PROXY / NO_PROXY when no explicit proxy is set;
 	// nil uses http.ProxyFromEnvironment.
 	EnvProxy func(*http.Request) (*url.URL, error)
+	// PinnedOnly trusts MEISCOPE_CA_BUNDLE and nothing else: the system
+	// roots are not added, and an unset bundle is an error (AC-G3-14).
+	PinnedOnly bool
 }
+
+// ErrNoPinnedCA is returned for PinnedOnly when MEISCOPE_CA_BUNDLE is unset.
+var ErrNoPinnedCA = errors.New("MEISCOPE_CA_BUNDLE is not set: enrolment trusts only the Meiscope CA certificate, which you save from the portal")
 
 // Transport returns an http.Transport for cfg. creds may be nil when no
 // proxy credential is configured.
@@ -70,10 +76,15 @@ func Transport(cfg Config, creds credential.Source, opts Options) (*http.Transpo
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.TLSHandshakeTimeout = 15 * time.Second
 	t.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	if opts.PinnedOnly && cfg.CABundle == "" {
+		return nil, ErrNoPinnedCA
+	}
 	if cfg.CABundle != "" {
-		pool, err := x509.SystemCertPool()
-		if err != nil || pool == nil {
-			pool = x509.NewCertPool()
+		pool := x509.NewCertPool()
+		if !opts.PinnedOnly {
+			if sys, err := x509.SystemCertPool(); err == nil && sys != nil {
+				pool = sys
+			}
 		}
 		pem, err := os.ReadFile(filepath.Clean(cfg.CABundle))
 		if err != nil {

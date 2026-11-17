@@ -24,7 +24,7 @@ func enrolled(t *testing.T, core *enroltest.Core, clk clock.Clock) (*identity.St
 	if err != nil {
 		t.Fatal(err)
 	}
-	cred, err := cl.Enrol(context.Background(), "mse1_renewer", csr)
+	cred, err := cl.Enrol(context.Background(), "mse1_renewer", enroltest.Name, enroltest.Platform, csr)
 	if err != nil {
 		t.Fatal(err)
 	}

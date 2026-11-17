@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/uvamai/meiscope-collector/internal/enrol"
 	"github.com/uvamai/meiscope-collector/internal/identity"
 	"github.com/uvamai/meiscope-collector/internal/submit/submittest"
 	"github.com/uvamai/meiscope-collector/internal/testpki"
@@ -39,6 +40,12 @@ const (
 	TokenDup  = "mse1_dup"  // 409
 	TokenBusy = "mse1_busy" // 503
 )
+
+// Name and Platform are the collector name and platform the fake core
+// approves (contract 0.10.0: a different name, os, arch or package is 403).
+const Name = "test-collector"
+
+var Platform = enrol.Platform{OS: "linux", Arch: "amd64", Package: "deb", Version: "0.4.0"}
 
 // CollectorID is the id the fake core gives every collector.
 const CollectorID = "0b7f3c52-6a2e-4c61-9d4b-2f8e1a7c5d10"
@@ -289,11 +296,17 @@ func (c *Core) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodPost && r.URL.Path == "/collector/v1/enrol":
 		var req struct {
-			Token string `json:"token"`
-			CSR   string `json:"csr"`
+			Token    string         `json:"token"`
+			Name     string         `json:"name"`
+			Platform enrol.Platform `json:"platform"`
+			CSR      string         `json:"csr"`
 		}
-		if json.Unmarshal(body, &req) != nil || req.CSR == "" {
+		if json.Unmarshal(body, &req) != nil || req.CSR == "" || req.Name == "" || req.Platform.Version == "" {
 			problem(w, http.StatusBadRequest, "malformed request")
+			return
+		}
+		if req.Name != Name || req.Platform.OS != Platform.OS || req.Platform.Arch != Platform.Arch || req.Platform.Package != Platform.Package {
+			problem(w, http.StatusForbidden, "enrolment_refused")
 			return
 		}
 		c.mu.Lock()

@@ -36,6 +36,23 @@ var ErrTokenRefused = errors.New("the enrolment token is invalid, expired or alr
 // collector of the token's name. The token stays unused.
 var ErrNameTaken = errors.New("the tenant already has a collector of this token's name (the token is still unused)")
 
+// ErrEnrolmentRefused is the core's 403 enrolment_refused (contract 0.10.0):
+// the device does not match the approved request. The core gives no detail
+// to the installer; the tenant admin sees the reason. The code stays usable.
+var ErrEnrolmentRefused = errors.New("the core refused this enrolment: the device does not match the approved request (name, operating system, architecture or package); the tenant admin can see why")
+
+// ErrRedirected is any 3xx answer. The collector never follows a redirect,
+// so the token is never sent to another address.
+var ErrRedirected = errors.New("the core answered with a redirect; it is not followed and the token was not sent anywhere else: check MEISCOPE_CORE_URL")
+
+// Platform is what the collector was built for (contract 0.10.0).
+type Platform struct {
+	OS      string `json:"os"`
+	Arch    string `json:"arch"`
+	Package string `json:"package"`
+	Version string `json:"version"`
+}
+
 // Error is any other refusal by the core, with its problem detail.
 type Error struct {
 	Status int
@@ -85,11 +102,13 @@ func New(base string, hc *http.Client, userAgent string) (*Client, error) {
 // Enrol redeems token with csr (PEM) and returns the issued credentials.
 // It does not retry: a token is single use, so a lost answer must not be
 // replayed blindly.
-func (c *Client) Enrol(ctx context.Context, token, csr string) (identity.Credentials, error) {
+func (c *Client) Enrol(ctx context.Context, token, name string, plat Platform, csr string) (identity.Credentials, error) {
 	body, err := json.Marshal(struct {
-		Token string `json:"token"`
-		CSR   string `json:"csr"`
-	}{token, csr})
+		Token    string   `json:"token"`
+		Name     string   `json:"name"`
+		Platform Platform `json:"platform"`
+		CSR      string   `json:"csr"`
+	}{token, name, plat, csr})
 	if err != nil {
 		return identity.Credentials{}, err
 	}
@@ -99,6 +118,8 @@ func (c *Client) Enrol(ctx context.Context, token, csr string) (identity.Credent
 		return cred, nil
 	case isStatus(err, http.StatusUnauthorized):
 		return identity.Credentials{}, ErrTokenRefused
+	case isStatus(err, http.StatusForbidden):
+		return identity.Credentials{}, ErrEnrolmentRefused
 	case isStatus(err, http.StatusConflict):
 		return identity.Credentials{}, ErrNameTaken
 	default:
@@ -137,11 +158,19 @@ func (c *Client) post(ctx context.Context, path string, body []byte) (identity.C
 	if c.userAgent != "" {
 		req.Header.Set("User-Agent", c.userAgent)
 	}
-	resp, err := c.hc.Do(req)
+	// Never follow a redirect: a 307/308 would replay the body, and with it
+	// the token, to another address (AC-G3-14). Copy the client so the
+	// caller's own redirect policy is not changed.
+	hc := *c.hc
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := hc.Do(req)
 	if err != nil {
 		return identity.Credentials{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return identity.Credentials{}, ErrRedirected
+	}
 	if resp.StatusCode != http.StatusCreated {
 		return identity.Credentials{}, readError(resp)
 	}

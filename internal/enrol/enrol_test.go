@@ -2,8 +2,12 @@ package enrol_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/uvamai/meiscope-collector/internal/enrol"
@@ -44,7 +48,7 @@ func TestEnrolIssuesForTheCSRKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cred, err := cl.Enrol(context.Background(), "mse1_first", csr)
+	cred, err := cl.Enrol(context.Background(), "mse1_first", enroltest.Name, enroltest.Platform, csr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +67,7 @@ func TestEnrolIssuesForTheCSRKey(t *testing.T) {
 	}
 	// A token is single use.
 	csr2 := newCSR(t)
-	if _, err := cl.Enrol(context.Background(), "mse1_first", csr2); !errors.Is(err, enrol.ErrTokenRefused) {
+	if _, err := cl.Enrol(context.Background(), "mse1_first", enroltest.Name, enroltest.Platform, csr2); !errors.Is(err, enrol.ErrTokenRefused) {
 		t.Fatalf("reused token: err %v, want ErrTokenRefused", err)
 	}
 }
@@ -73,26 +77,26 @@ func TestEnrolRefusals(t *testing.T) {
 	cl, _ := enrol.New(core.URL, core.Client(), "")
 	csr := newCSR(t)
 
-	_, err := cl.Enrol(context.Background(), enroltest.TokenUsed, csr)
+	_, err := cl.Enrol(context.Background(), enroltest.TokenUsed, enroltest.Name, enroltest.Platform, csr)
 	if !errors.Is(err, enrol.ErrTokenRefused) {
 		t.Fatalf("401: %v", err)
 	}
-	_, err = cl.Enrol(context.Background(), enroltest.TokenDup, csr)
+	_, err = cl.Enrol(context.Background(), enroltest.TokenDup, enroltest.Name, enroltest.Platform, csr)
 	if !errors.Is(err, enrol.ErrNameTaken) {
 		t.Fatalf("409: %v", err)
 	}
-	_, err = cl.Enrol(context.Background(), enroltest.TokenBusy, csr)
+	_, err = cl.Enrol(context.Background(), enroltest.TokenBusy, enroltest.Name, enroltest.Platform, csr)
 	var e *enrol.Error
 	if !errors.As(err, &e) || !e.Retryable() || e.Status != 503 {
 		t.Fatalf("503: %v", err)
 	}
-	_, err = cl.Enrol(context.Background(), "mse1_x", "not a csr")
+	_, err = cl.Enrol(context.Background(), "mse1_x", enroltest.Name, enroltest.Platform, "not a csr")
 	if !errors.As(err, &e) || e.Status != 400 || e.Retryable() {
 		t.Fatalf("400: %v", err)
 	}
 	// The token never appears in an error.
 	for _, tok := range []string{enroltest.TokenUsed, enroltest.TokenDup, enroltest.TokenBusy, "mse1_x"} {
-		_, err := cl.Enrol(context.Background(), tok, csr)
+		_, err := cl.Enrol(context.Background(), tok, enroltest.Name, enroltest.Platform, csr)
 		if err != nil && strings.Contains(err.Error(), tok) {
 			t.Fatalf("error %q contains the token", err)
 		}
@@ -104,7 +108,7 @@ func TestEnrolRefusesUntrustedCore(t *testing.T) {
 	other := enroltest.NewCore(t)
 	cl, _ := enrol.New(core.URL, other.Client(), "") // trusts the other core's CA only
 	csr := newCSR(t)
-	if _, err := cl.Enrol(context.Background(), "mse1_y", csr); err == nil {
+	if _, err := cl.Enrol(context.Background(), "mse1_y", enroltest.Name, enroltest.Platform, csr); err == nil {
 		t.Fatal("enrolled with a core whose certificate is not trusted")
 	}
 	if core.Requests("/collector/v1/enrol") != 0 {
@@ -120,5 +124,73 @@ func TestRenewNeedsTheCollectorCertificate(t *testing.T) {
 	var e *enrol.Error
 	if !errors.As(err, &e) || e.Status != 401 {
 		t.Fatalf("renew without mTLS: %v, want 401", err)
+	}
+}
+
+func TestEnrolSendsNameAndPlatform(t *testing.T) {
+	core := enroltest.NewCore(t)
+	cl, _ := enrol.New(core.URL, core.Client(), "")
+	if _, err := cl.Enrol(context.Background(), "mse1_body", enroltest.Name, enroltest.Platform, newCSR(t)); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Name     string
+		Platform enrol.Platform
+	}
+	bodies := core.Bodies[enrol.EnrolPath]
+	if len(bodies) != 1 {
+		t.Fatalf("bodies = %d", len(bodies))
+	}
+	if err := json.Unmarshal(bodies[0], &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != enroltest.Name || got.Platform != enroltest.Platform {
+		t.Fatalf("sent %+v", got)
+	}
+}
+
+func TestEnrolRefusedWhenDeviceDiffers(t *testing.T) {
+	core := enroltest.NewCore(t)
+	cl, _ := enrol.New(core.URL, core.Client(), "")
+	csr := newCSR(t)
+	for name, mut := range map[string]func(*enrol.Platform) string{
+		"name": func(*enrol.Platform) string { return "other-name" },
+		"arch": func(p *enrol.Platform) string { p.Arch = "arm64"; return enroltest.Name },
+		"pkg":  func(p *enrol.Platform) string { p.Package = "rpm"; return enroltest.Name },
+	} {
+		p := enroltest.Platform
+		n := mut(&p)
+		_, err := cl.Enrol(context.Background(), "mse1_403_"+name, n, p, csr)
+		if !errors.Is(err, enrol.ErrEnrolmentRefused) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// Positive control: the matching device enrols with the same token.
+	if _, err := cl.Enrol(context.Background(), "mse1_403_name", enroltest.Name, enroltest.Platform, csr); err != nil {
+		t.Fatalf("matching device refused: %v", err)
+	}
+}
+
+// AC-G3-14: a 307/308 is not followed; the second host never sees a request.
+func TestEnrolDoesNotFollowRedirects(t *testing.T) {
+	for _, code := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect, http.StatusFound} {
+		var second atomic.Int32
+		other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			second.Add(1)
+			w.WriteHeader(http.StatusCreated)
+		}))
+		first := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Redirect(w, &http.Request{}, other.URL+"/collector/v1/enrol", code)
+		}))
+		cl, _ := enrol.New(first.URL, first.Client(), "")
+		_, err := cl.Enrol(context.Background(), "mse1_redirect", enroltest.Name, enroltest.Platform, newCSR(t))
+		if !errors.Is(err, enrol.ErrRedirected) {
+			t.Errorf("%d: %v", code, err)
+		}
+		if n := second.Load(); n != 0 {
+			t.Errorf("%d: second host got %d requests", code, n)
+		}
+		first.Close()
+		other.Close()
 	}
 }
