@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync/atomic"
@@ -52,15 +53,31 @@ func TestPinnedOnlyIgnoresSystemRoots(t *testing.T) {
 	if err := os.WriteFile(bundle, []byte(testpki.PEM(bundleCA.Cert)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("SSL_CERT_FILE", sysFile)
-	t.Setenv("SSL_CERT_DIR", dir+"/none")
+	// Go reads the system roots once per process, so the two requests run in a
+	// child process that starts with SSL_CERT_FILE already set.
+	cmd := exec.Command(os.Args[0], "-test.run=^TestPinnedChild$")
+	cmd.Env = append(os.Environ(), "SSL_CERT_FILE="+sysFile, "SSL_CERT_DIR="+dir+"/none", "PIN_URL="+srv.URL, "PIN_BUNDLE="+bundle)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("child: %v\n%s", err, out)
+	}
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("server saw %d requests, want 1 (the control only)", n)
+	}
+}
 
+// TestPinnedChild runs only inside TestPinnedOnlyIgnoresSystemRoots.
+func TestPinnedChild(t *testing.T) {
+	url, bundle := os.Getenv("PIN_URL"), os.Getenv("PIN_BUNDLE")
+	if url == "" {
+		t.Skip("helper for TestPinnedOnlyIgnoresSystemRoots")
+	}
 	for _, pinned := range []bool{false, true} {
 		tr, err := egress.Transport(egress.Config{CABundle: bundle}, nil, egress.Options{PinnedOnly: pinned})
 		if err != nil {
 			t.Fatal(err)
 		}
-		resp, err := egress.Client(tr, 0).Get(srv.URL)
+		resp, err := egress.Client(tr, 0).Get(url)
 		if !pinned {
 			if err != nil {
 				t.Fatalf("control: the system-trusted server was refused: %v", err)
@@ -72,8 +89,5 @@ func TestPinnedOnlyIgnoresSystemRoots(t *testing.T) {
 			_ = resp.Body.Close()
 			t.Fatal("pinned: a certificate outside the bundle was accepted")
 		}
-	}
-	if n := hits.Load(); n != 1 {
-		t.Fatalf("server saw %d requests, want 1 (the control only)", n)
 	}
 }
