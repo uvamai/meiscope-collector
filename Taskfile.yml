@@ -127,7 +127,9 @@ tasks:
       VERSION: "{{.VERSION}}"
     cmds:
       - mkdir -p dist/.stage
-      - cp bin/linux_{{.GOARCH}}/{{.BINARY}} dist/.stage/{{.BINARY}}
+      # One binary per package type: the build records deb or rpm in the binary,
+      # and /enrol sends it (contract 0.10.0).
+      - GOOS=linux CGO_ENABLED=0 go build -trimpath -ldflags "{{.LDFLAGS}} -X {{.PKG}}/internal/platform.Package={{.PACKAGER}}" -o dist/.stage/{{.BINARY}} ./cmd/{{.BINARY}}
       - nfpm package --config packaging/nfpm.yaml --packager {{.PACKAGER}} --target dist/
 
   contract:diff:

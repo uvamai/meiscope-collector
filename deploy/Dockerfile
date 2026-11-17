@@ -25,7 +25,7 @@ COPY go.su[m] ./
 RUN go mod download
 COPY . .
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
-      -ldflags "-s -w -X github.com/uvamai/meiscope-collector/internal/platform.Version=${VERSION} -X github.com/uvamai/meiscope-collector/internal/platform.Commit=${COMMIT}" \
+      -ldflags "-s -w -X github.com/uvamai/meiscope-collector/internal/platform.Version=${VERSION} -X github.com/uvamai/meiscope-collector/internal/platform.Commit=${COMMIT} -X github.com/uvamai/meiscope-collector/internal/platform.Package=container" \
       -o /out/meiscope-collector ./cmd/meiscope-collector
 # An empty state directory, so a volume mounted on it is writable by nonroot.
 RUN mkdir -p /out/state

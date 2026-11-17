@@ -1,25 +1,20 @@
 package egress_test
 
 import (
-	"encoding/pem"
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/uvamai/meiscope-collector/internal/egress"
+	"github.com/uvamai/meiscope-collector/internal/testpki"
 )
-
-func pemOf(t *testing.T, srv *httptest.Server, path string) {
-	t.Helper()
-	b := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
 
 func TestPinnedOnlyNeedsABundle(t *testing.T) {
 	_, err := egress.Transport(egress.Config{}, nil, egress.Options{PinnedOnly: true})
@@ -38,17 +33,25 @@ func TestPinnedOnlyIgnoresSystemRoots(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("SSL_CERT_FILE sets the system roots on Linux only")
 	}
-	var hits int
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits++ }))
+	now := time.Now()
+	sysCA := testpki.NewRoot(t, "system-trusted CA", now)
+	bundleCA := testpki.NewRoot(t, "bundle CA", now)
+	leaf, key := sysCA.Issue(t, testpki.LeafTemplate("core.test", now.Add(-time.Hour), 24*time.Hour, "127.0.0.1"))
+	var hits atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	srv.TLS = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{testpki.TLSCertificate(leaf, key)}}
+	srv.StartTLS()
 	defer srv.Close()
-	other := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	defer other.Close()
 
 	dir := t.TempDir()
 	sysFile := filepath.Join(dir, "system.pem")
 	bundle := filepath.Join(dir, "bundle.pem")
-	pemOf(t, srv, sysFile)  // trusted by the "system" only
-	pemOf(t, other, bundle) // the bundle holds a different CA
+	if err := os.WriteFile(sysFile, []byte(testpki.PEM(sysCA.Cert)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bundle, []byte(testpki.PEM(bundleCA.Cert)), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("SSL_CERT_FILE", sysFile)
 	t.Setenv("SSL_CERT_DIR", dir+"/none")
 
@@ -70,7 +73,7 @@ func TestPinnedOnlyIgnoresSystemRoots(t *testing.T) {
 			t.Fatal("pinned: a certificate outside the bundle was accepted")
 		}
 	}
-	if hits != 1 {
-		t.Fatalf("server saw %d requests, want 1 (the control only)", hits)
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("server saw %d requests, want 1 (the control only)", n)
 	}
 }

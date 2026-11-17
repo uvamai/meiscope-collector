@@ -131,11 +131,15 @@ You also need `curl` and [cosign](https://docs.sigstore.dev/cosign/system_config
    ```
 
 6. **Enrol.** The collector creates its private key on this server and
-   sends only a certificate request. The code works once, and the file is
-   deleted when enrolment succeeds.
+   sends only a certificate request, with the collector name and what it
+   was built for (system, architecture, package). The name must be the one
+   you approved in the portal. The code works once. The collector refuses a
+   code file that group or others can read, and deletes the file when
+   enrolment succeeds.
 
    ```sh
    sudo MEISCOPE_CORE_URL='<core_url>' \
+     MEISCOPE_COLLECTOR_NAME='<collector_name>' \
      MEISCOPE_CA_BUNDLE=/etc/meiscope-collector/collector-ca.crt \
      meiscope-collector enrol --token-file /etc/meiscope-collector/enrol-code \
      && sudo rm -f /etc/meiscope-collector/enrol-code
