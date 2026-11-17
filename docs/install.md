@@ -23,7 +23,7 @@ The package installs:
 | `/etc/meiscope-collector/collector.env` | configuration (no secrets) |
 
 ```sh
-sudoedit /etc/meiscope-collector/collector.env   # set MEISCOPE_CORE_URL and MEISCOPE_CA_BUNDLE
+sudoedit /etc/meiscope-collector/collector.env   # set MEISCOPE_CORE_URL, MEISCOPE_COLLECTOR_NAME and MEISCOPE_CA_BUNDLE
 sudo sh -c 'set -a; . /etc/meiscope-collector/collector.env; meiscope-collector enrol --token-file -'
                                                   # paste the one-time token, then Enter
 sudo systemctl enable --now meiscope-collector
@@ -49,7 +49,8 @@ lifetime with a new key.
 | Variable | Meaning |
 |---|---|
 | `MEISCOPE_CORE_URL` | the core's collector endpoint, `https://…` |
-| `MEISCOPE_CA_BUNDLE` | PEM file with the core's CA certificate, for the **first contact** only (the system roots are also trusted then). Without it, enrolment fails unless the core's certificate is publicly trusted; the token is never sent to a server the collector cannot verify. |
+| `MEISCOPE_CA_BUNDLE` | PEM file with the Meiscope CA certificate, **required** by `enrol`. The first contact trusts this file and nothing else (not the system roots), and the collector never follows a redirect, so the token is only sent to a server at `MEISCOPE_CORE_URL` whose certificate comes from this CA. |
+| `MEISCOPE_COLLECTOR_NAME` | The collector name approved in the portal (or `--name`), required by `enrol`: lower-case letters, digits and hyphens, at most 63 characters. |
 | `MEISCOPE_STATE_DIR` | identity directory (default `/var/lib/meiscope-collector`) |
 
 Give the token through `--token-file PATH` or `--token-file -` (standard

@@ -34,7 +34,7 @@ func enrolled(t *testing.T, core *enroltest.Core) (*identity.Store, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cred, err := cl.Enrol(context.Background(), "mse1_"+t.Name(), csr)
+	cred, err := cl.Enrol(context.Background(), "mse1_"+t.Name(), enroltest.Name, enroltest.Platform, csr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestSaveRefusesBadCredentials(t *testing.T) {
 	key, _ := identity.NewKey()
 	csr, _ := identity.CSR(key)
 	cl, _ := enrol.New(core.URL, core.Client(), "test")
-	good, err := cl.Enrol(context.Background(), "mse1_good", csr)
+	good, err := cl.Enrol(context.Background(), "mse1_good", enroltest.Name, enroltest.Platform, csr)
 	if err != nil {
 		t.Fatal(err)
 	}

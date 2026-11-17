@@ -6,4 +6,8 @@ package platform
 var (
 	Version = "dev"
 	Commit  = "none"
+	// Package is how this binary was packaged: deb, rpm or container. Only
+	// the package build sets it; a binary built by hand has none and cannot
+	// enrol (the core binds a code to the package).
+	Package = ""
 )
